@@ -1,0 +1,26 @@
+{
+  "name": "atref",
+  "version": "0.0.0",
+  "description": "Global file-reference picker: press a chord in any text field, fuzzy-pick a file, insert its path or wikilink. Name reservation — under active development.",
+  "bin": {
+    "atref": "bin/atref.js"
+  },
+  "keywords": [
+    "cli",
+    "fuzzy",
+    "picker",
+    "files",
+    "productivity"
+  ],
+  "license": "MIT",
+  "author": "Juan José Fuchs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/juanjofuchs/atref.git"
+  },
+  "homepage": "https://github.com/juanjofuchs/atref",
+  "files": [
+    "bin/",
+    "README.md"
+  ]
+}

@@ -1,0 +1,35 @@
+# Rust
+target/
+**/*.rs.bk
+Cargo.lock.bak
+*.pdb
+
+# Build artifacts
+dist/
+build/
+release/
+
+# IDE / editors
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs and local state
+*.log
+transcript.log
+.atref/
+%APPDATA%/atref/
+
+# npm wrapper (post-MVP)
+node_modules/
+npm/bin/atref-*
+npm/*.tgz
+
+# Environment
+.env
+.env.local
