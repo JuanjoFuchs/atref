@@ -1,9 +1,10 @@
-//! In-memory file index built by enumerating the configured folders (FR5).
+//! In-memory file index built by enumerating the configured folders (FR5),
+//! optionally respecting `.gitignore` (spec 002 FR1–FR4).
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use walkdir::{DirEntry, WalkDir};
+use ignore::{DirEntry, WalkBuilder};
 
 /// One indexed file.
 #[derive(Debug, Clone)]
@@ -14,6 +15,9 @@ pub struct Entry {
     pub root: PathBuf,
     /// Path relative to `root`, used for matching and display.
     pub rel: String,
+    /// Index of `root` in the configured `folders` list. Lower wins ranking
+    /// ties (spec 002 FR5 — folder priority).
+    pub root_rank: usize,
 }
 
 impl Entry {
@@ -32,23 +36,54 @@ impl Entry {
             None => "",
         }
     }
+
+    /// Name of the configured root folder this file came from.
+    pub fn root_name(&self) -> &str {
+        self.root.file_name().and_then(|n| n.to_str()).unwrap_or("")
+    }
+
+    /// Dim secondary text for a result row: the source folder, plus the parent
+    /// directory within it, so results from different configured folders are
+    /// distinguishable (roadmap #30).
+    pub fn location(&self) -> String {
+        let folder = self.root_name();
+        let parent = self.parent_rel().replace('\\', "/");
+        if parent.is_empty() {
+            folder.to_string()
+        } else {
+            format!("{folder}/{parent}")
+        }
+    }
 }
 
-/// Build the index over `folders`, pruning `exclude`d directories and skipping
-/// hidden files. Symlinks are not followed; a given absolute path appears once.
-pub fn build(folders: &[PathBuf], exclude: &[String]) -> Vec<Entry> {
+/// Build the index over `folders`. Always skips hidden files and prunes
+/// `exclude`d directory names. When `git_aware` and a folder is inside a Git
+/// working tree, paths ignored by Git (`.gitignore`, `.git/info/exclude`, the
+/// global gitignore) are skipped — but untracked, non-ignored files are still
+/// indexed. Symlinks are not followed; a given absolute path appears once,
+/// under its earliest-listed root.
+pub fn build(folders: &[PathBuf], exclude: &[String], git_aware: bool) -> Vec<Entry> {
     let mut entries = Vec::new();
     let mut seen = HashSet::new();
-    for root in folders {
-        let walker = WalkDir::new(root)
+    for (root_rank, root) in folders.iter().enumerate() {
+        let exclude_owned = exclude.to_vec();
+        let walker = WalkBuilder::new(root)
             .follow_links(false)
-            .into_iter()
-            .filter_entry(|e| !is_excluded_dir(e, exclude));
+            .hidden(true)
+            .parents(git_aware)
+            .git_ignore(git_aware)
+            .git_global(git_aware)
+            .git_exclude(git_aware)
+            .ignore(false)
+            .filter_entry(move |e| !is_excluded_dir(e, &exclude_owned))
+            .build();
         for entry in walker.flatten() {
-            if !entry.file_type().is_file() || is_hidden(entry.path()) {
+            let path = entry.path();
+            let is_file = entry.file_type().map(|ft| ft.is_file()).unwrap_or(false);
+            if !is_file || is_hidden(path) {
                 continue;
             }
-            let abs = entry.path().to_path_buf();
+            let abs = path.to_path_buf();
             if !seen.insert(abs.clone()) {
                 continue;
             }
@@ -61,6 +96,7 @@ pub fn build(folders: &[PathBuf], exclude: &[String]) -> Vec<Entry> {
                 abs,
                 root: root.clone(),
                 rel,
+                root_rank,
             });
         }
     }
@@ -69,7 +105,7 @@ pub fn build(folders: &[PathBuf], exclude: &[String]) -> Vec<Entry> {
 
 /// Prune a directory whose name matches an `exclude` entry.
 fn is_excluded_dir(entry: &DirEntry, exclude: &[String]) -> bool {
-    entry.file_type().is_dir()
+    entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false)
         && entry
             .file_name()
             .to_str()
@@ -78,7 +114,8 @@ fn is_excluded_dir(entry: &DirEntry, exclude: &[String]) -> bool {
 }
 
 /// A file is hidden if its name is dot-prefixed or it carries the Windows
-/// hidden attribute.
+/// hidden attribute. (`ignore`'s `hidden(true)` covers dot-prefixed names but
+/// not the NTFS hidden attribute, so this overlay preserves FR4 parity.)
 fn is_hidden(path: &Path) -> bool {
     let dot_prefixed = path
         .file_name()
@@ -112,6 +149,8 @@ mod tests {
     #[test]
     fn excludes_named_dirs_and_hidden_files() {
         // AC9: hidden files and .git / node_modules / target are excluded.
+        // git_aware: false so this exercises the plain-walk + exclude + hidden path
+        // without requiring a Git repo (git-aware filtering is covered in tests/).
         let tmp = std::env::temp_dir().join("atref_test_idx_excludes");
         let _ = fs::remove_dir_all(&tmp);
         touch(&tmp, "keep.md");
@@ -126,7 +165,7 @@ mod tests {
             "node_modules".to_string(),
             "target".to_string(),
         ];
-        let names: Vec<String> = build(std::slice::from_ref(&tmp), &exclude)
+        let names: Vec<String> = build(std::slice::from_ref(&tmp), &exclude, false)
             .iter()
             .map(|e| e.name().to_string())
             .collect();
@@ -142,8 +181,9 @@ mod tests {
     }
 
     #[test]
-    fn indexes_multiple_folders_and_dedupes() {
-        // AC10: files from every configured folder are searchable; no dupes.
+    fn indexes_multiple_folders_dedupes_and_ranks() {
+        // AC10: files from every configured folder are searchable; no dupes;
+        // each entry records its folder's rank (FR5).
         let base = std::env::temp_dir().join("atref_test_idx_multi");
         let _ = fs::remove_dir_all(&base);
         let a = base.join("a");
@@ -151,17 +191,36 @@ mod tests {
         touch(&a, "alpha.md");
         touch(&b, "beta.md");
 
-        let names: Vec<String> = build(&[a.clone(), b.clone()], &[])
-            .iter()
-            .map(|e| e.name().to_string())
-            .collect();
-        assert!(names.contains(&"alpha.md".to_string()));
-        assert!(names.contains(&"beta.md".to_string()));
+        let idx = build(&[a.clone(), b.clone()], &[], false);
+        let by_name = |n: &str| idx.iter().find(|e| e.name() == n).unwrap();
+        assert_eq!(by_name("alpha.md").root_rank, 0);
+        assert_eq!(by_name("beta.md").root_rank, 1);
 
         // The same root listed twice still yields each file once.
-        let twice = build(&[a.clone(), a.clone()], &[]);
+        let twice = build(&[a.clone(), a.clone()], &[], false);
         assert_eq!(twice.iter().filter(|e| e.name() == "alpha.md").count(), 1);
 
         let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn location_shows_source_folder() {
+        // Roadmap #30: the dim secondary text names the configured folder so
+        // results from different folders are distinguishable.
+        let top = Entry {
+            abs: PathBuf::from(r"D:\dev\second-brain\note.md"),
+            root: PathBuf::from(r"D:\dev\second-brain"),
+            rel: "note.md".to_string(),
+            root_rank: 0,
+        };
+        assert_eq!(top.location(), "second-brain");
+
+        let nested = Entry {
+            abs: PathBuf::from(r"D:\dev\atref\specs\001.md"),
+            root: PathBuf::from(r"D:\dev\atref"),
+            rel: r"specs\001.md".to_string(),
+            root_rank: 1,
+        };
+        assert_eq!(nested.location(), "atref/specs");
     }
 }

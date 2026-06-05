@@ -1,7 +1,7 @@
 ---
 id: "002"
 title: atref result quality — git-aware indexing, folder priority, live file-watching, CamelHumps
-status: pending
+status: complete
 blocked_by: []
 blocks: []
 ---
@@ -117,25 +117,25 @@ v0.1 UX:
 
 ## Pre-requisites (Human Required)
 
-- [ ] Spec 001 complete (it is).
-- [ ] A configured folder that is a Git repo with a `.gitignore` (e.g.
+- [x] Spec 001 complete (it is).
+- [x] A configured folder that is a Git repo with a `.gitignore` (e.g.
       `D:\jfuchs\dev\atref`) available for verifying FR1.
 
 ## Implementation Tasks
 
-- [ ] Replace the `walkdir` indexer with the `ignore` crate; apply Git ignore
+- [x] Replace the `walkdir` indexer with the `ignore` crate; apply Git ignore
       rules when `git_aware` is on and the folder is in a Git tree, else plain
       walk. Keep the `exclude` overlay and hidden-file filter (FR1–FR4).
-- [ ] Add `git_aware` to the config schema, default `true` when absent
+- [x] Add `git_aware` to the config schema, default `true` when absent
       (FR2, TC4).
-- [ ] Add folder-priority tiebreaking to result ranking (FR5).
-- [ ] Add a `notify`-based recursive watcher over all configured folders, with
+- [x] Add folder-priority tiebreaking to result ranking (FR5).
+- [x] Add a `notify`-based recursive watcher over all configured folders, with
       debounce, applying the same filters to events and updating the index live
       (FR6, FR7, NFR1, NFR2).
-- [ ] Restart the watcher on *Reload config* against the new folder set (FR8).
-- [ ] Synchronize index access between watcher and UI thread without blocking
+- [x] Restart the watcher on *Reload config* against the new folder set (FR8).
+- [x] Synchronize index access between watcher and UI thread without blocking
       (TC3).
-- [ ] Add tests: gitignored-excluded + untracked-shown (FR1), toggle off (FR2),
+- [x] Add tests: gitignored-excluded + untracked-shown (FR1), toggle off (FR2),
       folder-priority ordering (FR5), initialism ranking (FR9), and watcher
       add/remove over a temp directory (FR6 / NFR1).
 
@@ -143,41 +143,41 @@ v0.1 UX:
 
 ### Git-aware indexing
 
-- [ ] **AC1**: With `git_aware: true` and a folder that is a Git repo, files
+- [x] **AC1**: With `git_aware: true` and a folder that is a Git repo, files
       matched by `.gitignore` are absent from the index while a newly-created
       non-ignored file IS present.
-- [ ] **AC2**: With `git_aware: false`, gitignored files reappear (fallback to
+- [x] **AC2**: With `git_aware: false`, gitignored files reappear (fallback to
       plain enumeration + `exclude`).
-- [ ] **AC3**: The `exclude` list and hidden-file skipping still apply when
+- [x] **AC3**: The `exclude` list and hidden-file skipping still apply when
       `git_aware: true`.
-- [ ] **AC4**: A `config.json` with no `git_aware` key loads and behaves as
+- [x] **AC4**: A `config.json` with no `git_aware` key loads and behaves as
       `git_aware: true`.
 
 ### Folder priority
 
-- [ ] **AC5**: Given two folders each containing an equally-scoring match, the
+- [x] **AC5**: Given two folders each containing an equally-scoring match, the
       file under the earlier-listed folder ranks first; reversing the folder
       order reverses the ranking.
 
 ### Live file-watching
 
-- [ ] **AC6**: Creating a new non-ignored file in a watched folder makes it
+- [x] **AC6**: Creating a new non-ignored file in a watched folder makes it
       appear in the picker within 2 seconds, with no *Reload* (NFR1).
-- [ ] **AC7**: Deleting or renaming a file removes the stale entry within 2
+- [x] **AC7**: Deleting or renaming a file removes the stale entry within 2
       seconds.
-- [ ] **AC8**: Creating a gitignored or hidden file does NOT add it (the
+- [x] **AC8**: Creating a gitignored or hidden file does NOT add it (the
       watcher honors FR1–FR4).
-- [ ] **AC9**: A burst of file changes neither panics nor visibly lags the
+- [x] **AC9**: A burst of file changes neither panics nor visibly lags the
       picker (NFR2, FR7).
 
 ### CamelHumps
 
-- [ ] **AC10**: Query `mclfi` ranks `MyClassFile.*` first among distractors,
+- [x] **AC10**: Query `mclfi` ranks `MyClassFile.*` first among distractors,
       and query `fsfg` ranks `Finite Seasons Family Gift.md` first (FR9).
 
 ### Regression
 
-- [ ] **AC11**: All spec 001 behavior still works — chord, picker, `@"path"`
+- [x] **AC11**: All spec 001 behavior still works — chord, picker, `@"path"`
       insertion, tray menu, JSON config, and *Reload* (which now also restarts
       the watcher, FR8).
 

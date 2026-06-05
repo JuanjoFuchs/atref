@@ -6,3 +6,5 @@
 pub mod config;
 pub mod index;
 pub mod reference;
+pub mod search;
+pub mod watch;

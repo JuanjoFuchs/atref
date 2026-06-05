@@ -14,6 +14,14 @@ pub struct Config {
     /// Directory names pruned during traversal.
     #[serde(default)]
     pub exclude: Vec<String>,
+    /// Follow `.gitignore` when a folder is a Git repo — skip ignored files but
+    /// still show untracked non-ignored ones. Default `true`.
+    #[serde(default = "default_true")]
+    pub git_aware: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Config {
@@ -26,6 +34,7 @@ impl Config {
                 .iter()
                 .map(|s| s.to_string())
                 .collect(),
+            git_aware: true,
         }
     }
 
@@ -93,5 +102,20 @@ mod tests {
         let json = r#"{"folders": ["C:\\x"], "chord": "Control+Space"}"#;
         let cfg = Config::from_json(json).unwrap();
         assert!(cfg.exclude.is_empty());
+    }
+
+    #[test]
+    fn git_aware_defaults_true_when_absent() {
+        // AC4: a config.json without `git_aware` behaves as `git_aware: true`.
+        let json = r#"{"folders": ["C:\\x"], "chord": "Control+Space"}"#;
+        let cfg = Config::from_json(json).unwrap();
+        assert!(cfg.git_aware);
+    }
+
+    #[test]
+    fn git_aware_explicit_false_parses() {
+        let json = r#"{"folders": ["C:\\x"], "chord": "Control+Space", "git_aware": false}"#;
+        let cfg = Config::from_json(json).unwrap();
+        assert!(!cfg.git_aware);
     }
 }

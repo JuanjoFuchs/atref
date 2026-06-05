@@ -13,18 +13,20 @@
 
 use std::ffi::c_void;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Receiver};
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Duration;
 
 use eframe::egui;
 use enigo::{Direction, Enigo, Key, Keyboard, Settings};
 use global_hotkey::hotkey::HotKey;
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
-use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
-use nucleo_matcher::{Config as MatcherConfig, Matcher, Utf32Str};
+use nucleo_matcher::{Config as MatcherConfig, Matcher};
 use tray_icon::menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 use windows::Win32::Foundation::{HWND, POINT};
+use windows::Win32::Graphics::Gdi::{
+    GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, GetForegroundWindow, SetForegroundWindow,
 };
@@ -32,11 +34,17 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use atref::config::Config;
 use atref::index::{self, Entry};
 use atref::reference;
+use atref::search;
+use atref::watch;
 
 /// Off-screen parking spot for the "hidden" state (see the TC7 note above).
 const OFFSCREEN: f32 = -32000.0;
 /// How many results the picker shows at once (FR8).
 const MAX_RESULTS: usize = 10;
+/// Picker window size in logical points — kept in sync with the NativeOptions
+/// inner size so on-screen clamping uses the right dimensions.
+const PICKER_W: f32 = 560.0;
+const PICKER_H: f32 = 360.0;
 /// Flag to suppress the brief console window when shelling out to open config.
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -52,6 +60,11 @@ enum Msg {
     OpenConfig,
     Reload,
     Quit,
+    /// A background rebuild finished; swap it in if still the current generation.
+    IndexReady {
+        generation: u64,
+        index: Vec<Entry>,
+    },
 }
 
 /// Tray menu item ids, used to route `MenuEvent`s.
@@ -75,6 +88,12 @@ struct App {
     tray: TrayIcon,
 
     rx: Receiver<Msg>,
+    tx: Sender<Msg>,
+    ctx: egui::Context,
+    // Live file-watcher (spec 002 FR6). Holding the guard keeps the watch alive;
+    // `watch_generation` discards rebuilds superseded by a Reload.
+    debouncer: Option<Box<dyn std::any::Any>>,
+    watch_generation: u64,
 
     // Picker state.
     visible: bool,
@@ -129,9 +148,11 @@ impl App {
             .build()
             .expect("build tray icon");
 
-        // --- watcher thread: wake the loop on tray/hotkey events (TC7) ---
+        // --- hotkey/menu thread: wake the loop on tray + chord events (TC7) ---
         let (tx, rx) = channel::<Msg>();
         let ctx = cc.egui_ctx.clone();
+        let hk_tx = tx.clone();
+        let hk_ctx = ctx.clone();
         std::thread::spawn(move || {
             let hotkey_rx = GlobalHotKeyEvent::receiver();
             let menu_rx = MenuEvent::receiver();
@@ -139,8 +160,8 @@ impl App {
                 while let Ok(ev) = hotkey_rx.try_recv() {
                     if ev.state == HotKeyState::Pressed {
                         let (hwnd, x, y) = capture_foreground_and_cursor();
-                        let _ = tx.send(Msg::Show { hwnd, x, y });
-                        ctx.request_repaint();
+                        let _ = hk_tx.send(Msg::Show { hwnd, x, y });
+                        hk_ctx.request_repaint();
                     }
                 }
                 while let Ok(ev) = menu_rx.try_recv() {
@@ -154,15 +175,15 @@ impl App {
                         None
                     };
                     if let Some(m) = msg {
-                        let _ = tx.send(m);
-                        ctx.request_repaint();
+                        let _ = hk_tx.send(m);
+                        hk_ctx.request_repaint();
                     }
                 }
                 std::thread::sleep(Duration::from_millis(30));
             }
         });
 
-        Self {
+        let mut app = Self {
             config_path,
             home,
             config,
@@ -172,35 +193,54 @@ impl App {
             current_chord,
             tray,
             rx,
+            tx,
+            ctx,
+            debouncer: None,
+            watch_generation: 0,
             visible: false,
             query: String::new(),
             last_query: None,
             selected: 0,
             results: Vec::new(),
             target_hwnd: 0,
-        }
+        };
+        app.start_watcher();
+        app
     }
 
-    /// Move the window on-screen near the cursor and take focus (FR7).
+    /// Move the window on-screen near the cursor and take focus (FR7), clamped
+    /// to the monitor work area so it stays fully visible near screen edges.
     fn show_at(&mut self, ctx: &egui::Context, hwnd: isize, x: i32, y: i32) {
         self.target_hwnd = hwnd;
         self.query.clear();
         self.last_query = None;
         self.selected = 0;
         self.visible = true;
+
+        let ppp = ctx.pixels_per_point();
+        let w = (PICKER_W * ppp) as i32;
+        let h = (PICKER_H * ppp) as i32;
+        let work = work_area_at(x, y).unwrap_or((0, 0, i32::MAX, i32::MAX));
+        let (px, py) = clamp_to_work_area(x + 12, y + 24, w, h, work);
+
         ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
-            (x + 12) as f32,
-            (y + 24) as f32,
+            px as f32, py as f32,
         )));
         ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
     }
 
-    /// Park the window off-screen (FR12 / our "hidden" state).
+    /// Park the window off-screen and return focus to the app that was focused
+    /// when the picker opened (FR12).
     fn hide(&mut self, ctx: &egui::Context) {
         self.visible = false;
         ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
             OFFSCREEN, OFFSCREEN,
         )));
+        if self.target_hwnd != 0 {
+            unsafe {
+                let _ = SetForegroundWindow(HWND(self.target_hwnd as *mut c_void));
+            }
+        }
     }
 
     /// Accept the selected row: hide, then insert `@"<abs>"` at the caret (FR11).
@@ -216,35 +256,15 @@ impl App {
         std::thread::spawn(move || insert_reference(&text, target));
     }
 
-    /// Recompute the result list when the query changed (FR9).
+    /// Recompute the result list when the query changed (FR9), via the pure
+    /// ranker (folder-priority tiebreak + CamelHumps — spec 002 FR5/FR9).
     fn recompute(&mut self) {
         if self.last_query.as_deref() == Some(self.query.as_str()) {
             return;
         }
         self.last_query = Some(self.query.clone());
         self.selected = 0;
-        self.results.clear();
-
-        if self.index.is_empty() {
-            return;
-        }
-        if self.query.is_empty() {
-            self.results.extend(0..self.index.len().min(MAX_RESULTS));
-            return;
-        }
-
-        let pattern = Pattern::parse(&self.query, CaseMatching::Smart, Normalization::Smart);
-        let mut buf = Vec::new();
-        let mut scored: Vec<(u32, usize)> = Vec::new();
-        for (i, entry) in self.index.iter().enumerate() {
-            let haystack = Utf32Str::new(&entry.rel, &mut buf);
-            if let Some(score) = pattern.score(haystack, &mut self.matcher) {
-                scored.push((score, i));
-            }
-        }
-        scored.sort_unstable_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
-        self.results
-            .extend(scored.into_iter().take(MAX_RESULTS).map(|(_, i)| i));
+        self.results = search::rank(&self.query, &self.index, &mut self.matcher, MAX_RESULTS);
     }
 
     /// Re-read config, rebuild the index, re-register the chord (FR2 Reload).
@@ -258,14 +278,33 @@ impl App {
                     Ok(hk) => self.current_chord = Some(hk),
                     Err(e) => error_dialog(&format!("Could not register chord: {e}")),
                 }
-                self.index = index::build(&cfg.folders, &cfg.exclude);
+                self.index = index::build(&cfg.folders, &cfg.exclude, cfg.git_aware);
                 self.last_query = None;
                 self.config = cfg;
+                self.start_watcher();
             }
             Err(e) => error_dialog(&format!(
                 "Reload failed:\n{e}\n\nKeeping the previous configuration."
             )),
         }
+    }
+
+    /// (Re)start the live file-watcher against the current folder set (FR6/FR8).
+    fn start_watcher(&mut self) {
+        self.watch_generation += 1;
+        let generation = self.watch_generation;
+        let tx = self.tx.clone();
+        let ctx = self.ctx.clone();
+        self.debouncer = watch::spawn(
+            self.config.folders.clone(),
+            self.config.exclude.clone(),
+            self.config.git_aware,
+            Duration::from_millis(800),
+            move |index| {
+                let _ = tx.send(Msg::IndexReady { generation, index });
+                ctx.request_repaint();
+            },
+        );
     }
 }
 
@@ -279,6 +318,12 @@ impl eframe::App for App {
                 Msg::Quit => {
                     let _ = self.tray.set_visible(false);
                     std::process::exit(0);
+                }
+                Msg::IndexReady { generation, index } => {
+                    if generation == self.watch_generation {
+                        self.index = index;
+                        self.last_query = None;
+                    }
                 }
             }
         }
@@ -337,9 +382,9 @@ impl eframe::App for App {
                     let entry = &self.index[idx];
                     let mut job = egui::text::LayoutJob::default();
                     job.append(entry.name(), 0.0, fmt(normal));
-                    let parent = entry.parent_rel();
-                    if !parent.is_empty() {
-                        job.append(&format!("    {parent}"), 0.0, fmt(dim));
+                    let location = entry.location();
+                    if !location.is_empty() {
+                        job.append(&format!("    {location}"), 0.0, fmt(dim));
                     }
                     if ui.selectable_label(row == self.selected, job).clicked() {
                         clicked = Some(row);
@@ -389,6 +434,33 @@ fn capture_foreground_and_cursor() -> (isize, i32, i32) {
         let _ = GetCursorPos(&mut pt);
         (hwnd.0 as isize, pt.x, pt.y)
     }
+}
+
+/// The work area (left, top, right, bottom in physical px) of the monitor
+/// containing `(x, y)`, or `None` if it can't be determined.
+fn work_area_at(x: i32, y: i32) -> Option<(i32, i32, i32, i32)> {
+    unsafe {
+        let monitor = MonitorFromPoint(POINT { x, y }, MONITOR_DEFAULTTONEAREST);
+        let mut info = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        if GetMonitorInfoW(monitor, &mut info).as_bool() {
+            let r = info.rcWork;
+            Some((r.left, r.top, r.right, r.bottom))
+        } else {
+            None
+        }
+    }
+}
+
+/// Clamp a top-left window position so a `w`×`h` window stays inside the work
+/// area `(left, top, right, bottom)`. Pure — unit-tested.
+fn clamp_to_work_area(x: i32, y: i32, w: i32, h: i32, work: (i32, i32, i32, i32)) -> (i32, i32) {
+    let (left, top, right, bottom) = work;
+    let cx = x.min(right - w).max(left);
+    let cy = y.min(bottom - h).max(top);
+    (cx, cy)
 }
 
 /// Insert `text` at the caret of the previously-focused window (FR11):
@@ -478,11 +550,11 @@ fn main() -> eframe::Result {
             std::process::exit(1);
         }
     };
-    let index = index::build(&config.folders, &config.exclude);
+    let index = index::build(&config.folders, &config.exclude, config.git_aware);
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([560.0, 360.0])
+            .with_inner_size([PICKER_W, PICKER_H])
             .with_decorations(false)
             .with_always_on_top()
             .with_taskbar(false)
@@ -495,4 +567,26 @@ fn main() -> eframe::Result {
         native_options,
         Box::new(move |cc| Ok(Box::new(App::new(cc, config_path, home, config, index)))),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clamp_to_work_area;
+
+    #[test]
+    fn clamps_window_to_work_area() {
+        let work = (0, 0, 1920, 1080);
+        // Fits → unchanged.
+        assert_eq!(clamp_to_work_area(100, 100, 560, 360, work), (100, 100));
+        // Near the right edge → pushed left to fit.
+        assert_eq!(clamp_to_work_area(1900, 500, 560, 360, work), (1360, 500));
+        // Near the bottom edge → pushed up to fit.
+        assert_eq!(clamp_to_work_area(100, 1000, 560, 360, work), (100, 720));
+        // A left-of-primary monitor with negative coords is honored.
+        let left_monitor = (-1920, 0, 0, 1080);
+        assert_eq!(
+            clamp_to_work_area(-50, 100, 560, 360, left_monitor),
+            (-560, 100)
+        );
+    }
 }
