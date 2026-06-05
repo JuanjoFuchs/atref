@@ -33,14 +33,15 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use atref::config::Config;
 use atref::index::{self, Entry};
+use atref::picker;
 use atref::reference;
 use atref::search;
 use atref::watch;
 
 /// Off-screen parking spot for the "hidden" state (see the TC7 note above).
 const OFFSCREEN: f32 = -32000.0;
-/// How many results the picker shows at once (FR8).
-const MAX_RESULTS: usize = 10;
+/// How many top matches the picker lists (scrollable; spec 003).
+const MAX_RESULTS: usize = 50;
 /// Picker window size in logical points — kept in sync with the NativeOptions
 /// inner size so on-screen clamping uses the right dimensions.
 const PICKER_W: f32 = 560.0;
@@ -101,7 +102,11 @@ struct App {
     last_query: Option<String>,
     selected: usize,
     results: Vec<usize>,
+    match_total: usize,
     target_hwnd: isize,
+    /// True once the picker has held OS focus since showing — so hide-on-blur
+    /// only fires after it actually had focus (spec 003).
+    focus_armed: bool,
 }
 
 impl App {
@@ -113,6 +118,7 @@ impl App {
         index: Vec<Entry>,
     ) -> Self {
         let matcher = Matcher::new(MatcherConfig::DEFAULT.match_paths());
+        picker::install_theme(&cc.egui_ctx);
 
         // --- global hotkey (registered here, on the event-loop thread) ---
         let hotkeys = GlobalHotKeyManager::new().expect("create hotkey manager");
@@ -202,7 +208,9 @@ impl App {
             last_query: None,
             selected: 0,
             results: Vec::new(),
+            match_total: 0,
             target_hwnd: 0,
+            focus_armed: false,
         };
         app.start_watcher();
         app
@@ -216,6 +224,7 @@ impl App {
         self.last_query = None;
         self.selected = 0;
         self.visible = true;
+        self.focus_armed = false;
 
         let ppp = ctx.pixels_per_point();
         let w = (PICKER_W * ppp) as i32;
@@ -264,7 +273,10 @@ impl App {
         }
         self.last_query = Some(self.query.clone());
         self.selected = 0;
-        self.results = search::rank(&self.query, &self.index, &mut self.matcher, MAX_RESULTS);
+        let (results, total) =
+            search::rank(&self.query, &self.index, &mut self.matcher, MAX_RESULTS);
+        self.results = results;
+        self.match_total = total;
     }
 
     /// Re-read config, rebuild the index, re-register the chord (FR2 Reload).
@@ -343,75 +355,69 @@ impl eframe::App for App {
             self.hide(ctx);
         }
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            if !self.visible {
-                return;
+        // Hide when the window loses focus (e.g. a click outside), but only once
+        // it has actually held focus since showing (spec 003).
+        if self.visible {
+            if ctx.input(|i| i.focused) {
+                self.focus_armed = true;
+            } else if self.focus_armed {
+                self.hide(ctx);
             }
-            ui.add_space(4.0);
-            let resp = ui.add(
-                egui::TextEdit::singleline(&mut self.query)
-                    .hint_text("type to filter…")
-                    .desired_width(f32::INFINITY),
-            );
-            resp.request_focus();
+        }
 
+        if self.visible {
             self.recompute();
             let n = self.results.len();
             if n > 0 {
+                // Clamp at the ends (don't wrap) so the arrows scroll to and
+                // stay at the last/first row.
                 if down {
-                    self.selected = (self.selected + 1) % n;
+                    self.selected = (self.selected + 1).min(n - 1);
                 }
                 if up {
-                    self.selected = (self.selected + n - 1) % n;
+                    self.selected = self.selected.saturating_sub(1);
                 }
                 if self.selected >= n {
                     self.selected = n - 1;
                 }
             }
 
-            ui.separator();
-            if self.index.is_empty() {
-                ui.weak("no files indexed");
-            } else if n == 0 {
-                ui.weak("no matches");
-            } else {
-                let mut clicked: Option<usize> = None;
-                let normal = ui.visuals().text_color();
-                let dim = ui.visuals().weak_text_color();
-                for (row, &idx) in self.results.iter().enumerate() {
+            let rows: Vec<picker::Row> = self
+                .results
+                .iter()
+                .map(|&idx| {
                     let entry = &self.index[idx];
-                    let mut job = egui::text::LayoutJob::default();
-                    job.append(entry.name(), 0.0, fmt(normal));
-                    let location = entry.location();
-                    if !location.is_empty() {
-                        job.append(&format!("    {location}"), 0.0, fmt(dim));
+                    picker::Row {
+                        name: entry.name().to_string(),
+                        location: entry.location(),
                     }
-                    if ui.selectable_label(row == self.selected, job).clicked() {
-                        clicked = Some(row);
-                    }
-                }
-                if let Some(row) = clicked {
+                })
+                .collect();
+            let total = self.index.len();
+            match picker::render(
+                ctx,
+                &mut self.query,
+                &rows,
+                self.selected,
+                up || down,
+                self.match_total,
+                total,
+            ) {
+                picker::Action::Accept(row) => {
                     self.selected = row;
                     self.accept(ctx);
                 }
+                picker::Action::Close => self.hide(ctx),
+                picker::Action::None => {}
             }
-
             // Enter accepts the selection (captured at frame top — see above).
             if enter {
                 self.accept(ctx);
             }
-        });
+        }
 
         // Keep the loop ticking as a backstop to the watcher's wakes.
         ctx.request_repaint_after(Duration::from_millis(200));
-    }
-}
-
-/// A `TextFormat` of the given color at the default font.
-fn fmt(color: egui::Color32) -> egui::TextFormat {
-    egui::TextFormat {
-        color,
-        ..Default::default()
     }
 }
 

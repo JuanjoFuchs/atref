@@ -6,16 +6,23 @@ use nucleo_matcher::{Matcher, Utf32Str};
 
 use crate::index::Entry;
 
-/// Rank `entries` for `query`, returning indices into `entries` (best first,
-/// at most `max`).
+/// Rank `entries` for `query`. Returns `(order, total)` where `order` is the
+/// indices of the best `max` matches (best first) and `total` is the count of
+/// ALL matching entries (for the picker's `matches / total` counter).
 ///
 /// Ordering: nucleo fuzzy score DESC, then folder priority (`root_rank`) ASC,
-/// then path ASC. An empty query lists entries in folder-priority order. The
-/// match runs against each entry's path-relative-to-root, which yields
-/// CamelCase / initialism ("CamelHumps") bonuses via nucleo's path-aware config.
-pub fn rank(query: &str, entries: &[Entry], matcher: &mut Matcher, max: usize) -> Vec<usize> {
+/// then path ASC. An empty query lists entries in folder-priority order (every
+/// entry "matches", so `total == entries.len()`). The match runs against each
+/// entry's path-relative-to-root, which yields CamelCase / initialism
+/// ("CamelHumps") bonuses via nucleo's path-aware config.
+pub fn rank(
+    query: &str,
+    entries: &[Entry],
+    matcher: &mut Matcher,
+    max: usize,
+) -> (Vec<usize>, usize) {
     if entries.is_empty() {
-        return Vec::new();
+        return (Vec::new(), 0);
     }
 
     if query.is_empty() {
@@ -26,8 +33,9 @@ pub fn rank(query: &str, entries: &[Entry], matcher: &mut Matcher, max: usize) -
                 .cmp(&entries[b].root_rank)
                 .then_with(|| entries[a].rel.cmp(&entries[b].rel))
         });
+        let total = idx.len();
         idx.truncate(max);
-        return idx;
+        return (idx, total);
     }
 
     let pattern = Pattern::parse(query, CaseMatching::Smart, Normalization::Smart);
@@ -39,12 +47,14 @@ pub fn rank(query: &str, entries: &[Entry], matcher: &mut Matcher, max: usize) -
             scored.push((score, i));
         }
     }
+    let total = scored.len();
     scored.sort_by(|a, b| {
         b.0.cmp(&a.0)
             .then_with(|| entries[a.1].root_rank.cmp(&entries[b.1].root_rank))
             .then_with(|| entries[a.1].rel.cmp(&entries[b.1].rel))
     });
-    scored.into_iter().take(max).map(|(_, i)| i).collect()
+    let order = scored.into_iter().take(max).map(|(_, i)| i).collect();
+    (order, total)
 }
 
 #[cfg(test)]
@@ -71,22 +81,32 @@ mod tests {
         // AC5: equal-scoring matches → lower root_rank first, regardless of the
         // order they appear in the index.
         let entries = vec![entry("notes.md", 1), entry("notes.md", 0)];
-        let res = rank("notes", &entries, &mut matcher(), 10);
+        let (res, total) = rank("notes", &entries, &mut matcher(), 10);
         assert_eq!(res, vec![1, 0], "root_rank 0 (entries[1]) ranks first");
+        assert_eq!(total, 2, "both files match");
 
         // Reversing the folders reverses the ranking.
         let reversed = vec![entry("notes.md", 0), entry("notes.md", 1)];
-        let res = rank("notes", &reversed, &mut matcher(), 10);
+        let (res, _) = rank("notes", &reversed, &mut matcher(), 10);
         assert_eq!(res, vec![0, 1]);
     }
 
     #[test]
     fn empty_query_is_folder_priority_order() {
-        // FR5: empty query lists files in (root_rank, path) order.
+        // FR5: empty query lists files in (root_rank, path) order; total = all.
         let entries = vec![entry("b.md", 1), entry("a.md", 0), entry("c.md", 0)];
-        let res = rank("", &entries, &mut matcher(), 10);
-        // root_rank 0 first (a.md, c.md by path), then root_rank 1 (b.md).
+        let (res, total) = rank("", &entries, &mut matcher(), 10);
         assert_eq!(res, vec![1, 2, 0]);
+        assert_eq!(total, 3);
+    }
+
+    #[test]
+    fn caps_order_at_max_but_counts_all_matches() {
+        // The counter reflects ALL matches even when only `max` are shown.
+        let entries: Vec<Entry> = (0..25).map(|i| entry(&format!("note{i}.md"), 0)).collect();
+        let (res, total) = rank("note", &entries, &mut matcher(), 10);
+        assert_eq!(res.len(), 10, "only top `max` shown");
+        assert_eq!(total, 25, "but all matches counted");
     }
 
     #[test]
@@ -97,7 +117,7 @@ mod tests {
             entry("MyClassFile.rs", 0),
             entry("readme.md", 0),
         ];
-        let res = rank("mclfi", &entries, &mut matcher(), 10);
+        let (res, _) = rank("mclfi", &entries, &mut matcher(), 10);
         assert!(!res.is_empty(), "initialism should match");
         assert_eq!(entries[res[0]].rel, "MyClassFile.rs");
     }
@@ -110,7 +130,7 @@ mod tests {
             entry("Finite Seasons Family Gift.md", 0),
             entry("notes.md", 0),
         ];
-        let res = rank("fsfg", &entries, &mut matcher(), 10);
+        let (res, _) = rank("fsfg", &entries, &mut matcher(), 10);
         assert!(!res.is_empty(), "initialism should match");
         assert_eq!(entries[res[0]].rel, "Finite Seasons Family Gift.md");
     }

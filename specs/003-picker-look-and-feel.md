@@ -1,7 +1,7 @@
 ---
 id: "003"
 title: atref picker look & feel — console/monospace aesthetic and polish
-status: pending
+status: complete
 blocked_by: []
 blocks: []
 ---
@@ -75,40 +75,40 @@ deferred.
 
 ## Pre-requisites (Human Required)
 
-- [ ] Spec 001 complete (it is).
+- [x] Spec 001 complete (it is).
 
 ## Implementation Tasks
 
-- [ ] Set a monospace font family for all picker text (input, rows, counter,
+- [x] Set a monospace font family for all picker text (input, rows, counter,
       footer) (FR1).
-- [ ] Apply a compact dark/console theme — padding, background, border,
+- [x] Apply a compact dark/console theme — padding, background, border,
       fixed-height rows, and a caret + highlight for the selected row
       (FR2, FR3).
-- [ ] Add the `matches/total` counter (FR4).
-- [ ] Add the footer key-hint line using only currently-bound keys (FR5).
-- [ ] Size the window to query + 10 rows + footer; keep it borderless,
+- [x] Add the `matches/total` counter (FR4).
+- [x] Add the footer key-hint line using only currently-bound keys (FR5).
+- [x] Size the window to query + 10 rows + footer; keep it borderless,
       always-on-top, cursor-anchored (FR6).
-- [ ] Confirm behavior parity with specs 001/002 (FR7).
+- [x] Confirm behavior parity with specs 001/002 (FR7).
 
 ## Acceptance Criteria
 
 ### Visual
 
-- [ ] **AC1**: All picker text renders in a fixed-width font.
-- [ ] **AC2**: The picker has a cohesive dark/console look — clearly distinct
+- [x] **AC1**: All picker text renders in a fixed-width font.
+- [x] **AC2**: The picker has a cohesive dark/console look — clearly distinct
       from default egui — with consistent padding, fixed-height rows, and a
       window sized to the query + up to 10 rows + footer.
-- [ ] **AC3**: Each row shows the basename prominently and the parent path
+- [x] **AC3**: Each row shows the basename prominently and the parent path
       dimmed; the selected row is unmistakable (caret + highlight).
-- [ ] **AC4**: The counter shows the correct `matches/total` and updates as you
+- [x] **AC4**: The counter shows the correct `matches/total` and updates as you
       type.
-- [ ] **AC5**: The footer shows `enter`, `esc`, and `↑↓` hints.
-- [ ] **AC6**: Emoji-led filenames (`📦 atref.md`) render legibly and keep the
+- [x] **AC5**: The footer shows `enter`, `esc`, and `↑↓` hints.
+- [x] **AC6**: Emoji-led filenames (`📦 atref.md`) render legibly and keep the
       filename text visible (no alignment breakage that hides it).
 
 ### Regression
 
-- [ ] **AC7**: Filtering, `Enter` insertion, `Esc`, arrow navigation, the
+- [x] **AC7**: Filtering, `Enter` insertion, `Esc`, arrow navigation, the
       empty-index placeholder, tray, and config all behave exactly as before.
 
 ### Validation methods
@@ -174,6 +174,26 @@ Target look (current keybindings only):
 │  enter insert   esc cancel   ↑↓ move                           │
 └────────────────────────────────────────────────────────────────┘
 ```
+
+## Delivered (v0.3.0)
+
+Shipped the console/monospace look behind a testable `picker::render` seam with
+`egui_kittest` image-snapshot baselines (AC1–AC3, AC5, AC6) + a `counter_text`
+unit test (AC4). Deviations / additions from the original draft, agreed during
+testing:
+
+- The selected row is a **full-width teal fill** (the tray-icon teal) with
+  high-contrast text, rather than a `>` caret + reverse bar — a clearer
+  "unmistakable selection" (AC3 intent).
+- Footer reads `enter insert · esc cancel · ↑↓ move · click outside to close`.
+- Added beyond the draft: a scrolling result area (cap raised 10 → 50) with
+  arrow-nav **clamping** + scroll-into-view; **hide on focus-loss** (click
+  outside); a **close ✕**; the dim per-row **source folder** (spec 002, #30).
+
+> The monospace/console aesthetic is **superseded by spec 004** (Raycast /
+> PowerToys launcher look — proportional font, rounded window + shadow, airier
+> layout). The `render` seam + `egui_kittest` snapshot harness carry forward
+> unchanged; spec 004 restyles and regenerates the baselines.
 
 ## Out of Scope
 

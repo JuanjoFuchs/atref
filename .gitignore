@@ -30,6 +30,10 @@ node_modules/
 npm/bin/atref-*
 npm/*.tgz
 
+# egui_kittest snapshot artifacts (baseline *.png are committed; these are transient)
+tests/snapshots/**/*.new.png
+tests/snapshots/**/*.diff.png
+
 # Environment
 .env
 .env.local
