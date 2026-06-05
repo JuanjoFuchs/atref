@@ -23,9 +23,10 @@ use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use nucleo_matcher::{Config as MatcherConfig, Matcher};
 use tray_icon::menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
-use windows::Win32::Foundation::{HWND, POINT};
+use windows::Win32::Foundation::{BOOL, HWND, POINT};
 use windows::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    CreateRoundRectRgn, GetMonitorInfoW, MonitorFromPoint, SetWindowRgn, MONITORINFO,
+    MONITOR_DEFAULTTONEAREST,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, GetForegroundWindow, SetForegroundWindow,
@@ -44,8 +45,8 @@ const OFFSCREEN: f32 = -32000.0;
 const MAX_RESULTS: usize = 50;
 /// Picker window size in logical points — kept in sync with the NativeOptions
 /// inner size so on-screen clamping uses the right dimensions.
-const PICKER_W: f32 = 560.0;
-const PICKER_H: f32 = 360.0;
+const PICKER_W: f32 = 720.0;
+const PICKER_H: f32 = 460.0;
 /// Flag to suppress the brief console window when shelling out to open config.
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -107,6 +108,8 @@ struct App {
     /// True once the picker has held OS focus since showing — so hide-on-blur
     /// only fires after it actually had focus (spec 003).
     focus_armed: bool,
+    /// True once the window has been clipped to rounded corners (spec 004).
+    region_applied: bool,
 }
 
 impl App {
@@ -211,6 +214,7 @@ impl App {
             match_total: 0,
             target_hwnd: 0,
             focus_armed: false,
+            region_applied: false,
         };
         app.start_watcher();
         app
@@ -356,10 +360,15 @@ impl eframe::App for App {
         }
 
         // Hide when the window loses focus (e.g. a click outside), but only once
-        // it has actually held focus since showing (spec 003).
+        // it has actually held focus since showing (spec 003). On first focus,
+        // round the (now-foreground) window's corners (spec 004).
         if self.visible {
             if ctx.input(|i| i.focused) {
                 self.focus_armed = true;
+                if !self.region_applied {
+                    round_window(ctx.pixels_per_point());
+                    self.region_applied = true;
+                }
             } else if self.focus_armed {
                 self.hide(ctx);
             }
@@ -419,6 +428,12 @@ impl eframe::App for App {
         // Keep the loop ticking as a backstop to the watcher's wakes.
         ctx.request_repaint_after(Duration::from_millis(200));
     }
+
+    /// Opaque panel color (window transparency wasn't compositing on Windows);
+    /// the panel fills the window and `SetWindowRgn` rounds the corners.
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        egui::Color32::from_rgb(0x1E, 0x1E, 0x20).to_normalized_gamma_f32()
+    }
 }
 
 /// Parse + register a chord string, returning the registered `HotKey` (FR6).
@@ -467,6 +482,23 @@ fn clamp_to_work_area(x: i32, y: i32, w: i32, h: i32, work: (i32, i32, i32, i32)
     let cx = x.min(right - w).max(left);
     let cy = y.min(bottom - h).max(top);
     (cx, cy)
+}
+
+/// Clip our window to a rounded rectangle so it has rounded corners without a
+/// transparent window (which wasn't compositing on Windows). Called once, the
+/// first time the picker holds focus, on its (now-foreground) HWND.
+fn round_window(ppp: f32) {
+    let w = (PICKER_W * ppp).round() as i32;
+    let h = (PICKER_H * ppp).round() as i32;
+    let ellipse = (28.0 * ppp).round() as i32; // ~14 px corner radius
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.0.is_null() {
+            return;
+        }
+        let rgn = CreateRoundRectRgn(0, 0, w + 1, h + 1, ellipse, ellipse);
+        let _ = SetWindowRgn(hwnd, rgn, BOOL(1));
+    }
 }
 
 /// Insert `text` at the caret of the previously-focused window (FR11):

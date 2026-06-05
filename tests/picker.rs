@@ -1,11 +1,20 @@
-//! Snapshot tests for the picker's look & feel (spec 003 AC1–AC3, AC5, AC6).
-//! The rendered picker is diffed against an approved baseline PNG under
+//! Snapshot tests for the picker's look & feel (spec 004 AC1, AC3–AC7). The
+//! rendered picker is diffed against an approved baseline PNG under
 //! `tests/snapshots/`. Create or refresh baselines with:
 //!     UPDATE_SNAPSHOTS=1 cargo test --test picker
 //! The baselines are committed; JJ approves them once by eye.
+//!
+//! Each `egui_kittest` snapshot spins up a wgpu device; creating several
+//! concurrently crashes the GPU driver (STATUS_ACCESS_VIOLATION). A global lock
+//! serializes the device work so the default parallel test runner is safe, while
+//! each test keeps its own single `SnapshotResults`.
+
+use std::sync::Mutex;
 
 use atref::picker::{self, Row};
 use egui_kittest::Harness;
+
+static SNAPSHOT_LOCK: Mutex<()> = Mutex::new(());
 
 fn rows(items: &[(&str, &str)]) -> Vec<Row> {
     items
@@ -25,9 +34,11 @@ fn snapshot(
     matches: usize,
     total: usize,
 ) {
+    // Serialize wgpu device creation across tests (concurrent devices crash).
+    let _guard = SNAPSHOT_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     // Fixed window size so the pinned footer + fill behave like the real app.
     let mut harness = Harness::builder()
-        .with_size([560.0, 360.0])
+        .with_size([720.0, 460.0])
         .build(move |ctx| {
             picker::install_theme(ctx);
             let _ = picker::render(ctx, &mut query, &rows, selected, false, matches, total);
@@ -40,8 +51,7 @@ fn snapshot(
 
 #[test]
 fn picker_empty() {
-    // Empty query: all files listed, first selected. (AC1 monospace, AC2 frame,
-    // AC3 selected-row highlight, AC4 counter, AC5 footer.)
+    // Empty query: all files listed, first selected.
     snapshot(
         "picker_empty",
         String::new(),
@@ -75,7 +85,7 @@ fn picker_results() {
 
 #[test]
 fn picker_emoji() {
-    // AC6: emoji-led filenames render legibly and keep the name visible.
+    // AC7: emoji-led filenames render legibly and keep the name visible.
     snapshot(
         "picker_emoji",
         String::new(),
