@@ -1,0 +1,8 @@
+//! atref core — the pure, unit-testable logic shared by the binary.
+//!
+//! The GUI, tray, hotkey, and OS-injection wiring live in `main.rs`; everything
+//! that can be tested without a screen lives here.
+
+pub mod config;
+pub mod index;
+pub mod reference;
