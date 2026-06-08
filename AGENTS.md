@@ -15,6 +15,7 @@ chord anywhere → a fuzzy picker → insert an `@"absolute path"` at the caret.
 | Drafting OR implementing ANY spec | `ai-docs/testable-architecture.md`, then the spec | Follow the testable seams; make every AC code-verifiable |
 | Result quality (index/rank/watch) | `ai-docs/testable-architecture.md`, `specs/002-result-quality.md` | Spec → code behind seams → tests → ACs |
 | Picker look & feel | `ai-docs/testable-architecture.md`, `specs/003-picker-look-and-feel.md` | Spec → code → kittest snapshot/input tests |
+| Testing the **running app** / E2E / "see what it built" | `ai-docs/agentic-gui-testing.md` | Drive the live `.exe` via UIA + `enigo` + `xcap` (`live-gui`); `#[ignore]`d |
 | The app/tray icon, `.ico`, the visual `@` mark | `ai-docs/icon-design.md` + `tools/` | Render-in-the-loop; measure centering with the overlay; hand-author the SVG |
 | Modifying behavior | The relevant spec + `src/` | Update spec first, then patch source |
 | Updating agent instructions | this file | Edit this index; keep it ~50 lines |
@@ -36,8 +37,8 @@ parked **off-screen, never hidden** — a hidden eframe window stalls the event 
 ## Conventions
 
 - Rust stable. `cargo fmt --check` + `cargo clippy --all-targets -- -D warnings` + `cargo test` must pass before work is "done".
-- **Testability is mandatory.** Every AC is validated by code where possible (`unit` / `integration` / `egui_kittest` input + snapshot); `manual` only for the irreducible OS sliver. See `ai-docs/testable-architecture.md`.
-- Config: **JSON** at `%APPDATA%\atref\config.json`. No CLI subcommands, no env overrides.
+- **Testability is mandatory.** Every AC is validated by code where possible (`unit` / `integration` / `egui_kittest` input + snapshot / `live-gui`); `manual` only for the irreducible OS sliver. See `ai-docs/testable-architecture.md` and `ai-docs/agentic-gui-testing.md`.
+- Config: **JSON** at `%APPDATA%\atref\config.json`. No CLI subcommands; the only env var is `ATREF_DIR` (test-only seam to isolate config + store for `live-gui` E2E).
 - Spec rules: `D:/jfuchs/dev/second-brain/Spec Writing Rules for Agents.md`. Every AC names its validation method; no "Future Considerations" / "Success Criteria".
 - Commits: do not commit unless JJ explicitly asks.
 

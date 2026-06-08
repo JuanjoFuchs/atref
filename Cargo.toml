@@ -30,5 +30,10 @@ windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Graphics_Gd
 
 [dev-dependencies]
 egui_kittest = { version = "0.33", features = ["wgpu", "snapshot"] }
+# Agentic GUI E2E spike (branch spike/agentic-e2e): drive the live app via the
+# Windows UIA tree (AccessKit-exposed egui widgets), inject OS input, screenshot.
+# See ai-docs/agentic-gui-testing.md and tests/e2e.rs.
+uiautomation = { version = "0.25", features = ["process"] }
+xcap = "0.9"
 
 # src/main.rs (binary) + src/lib.rs (testable core) are auto-detected.
