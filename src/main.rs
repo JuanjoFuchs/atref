@@ -655,7 +655,13 @@ fn load_or_init(path: &Path, home: &Path) -> Result<Config, String> {
 
 fn main() -> eframe::Result {
     let dirs = directories::BaseDirs::new().expect("resolve base directories");
-    let config_path = dirs.config_dir().join("atref").join("config.json");
+    // Test seam: `ATREF_DIR` overrides atref's config + data directory so an E2E
+    // harness can run against an isolated config.json + index.redb without ever
+    // touching the user's real %APPDATA%\atref. Unset in normal use.
+    let atref_dir = std::env::var_os("ATREF_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| dirs.config_dir().join("atref"));
+    let config_path = atref_dir.join("config.json");
     let home = dirs.home_dir().to_path_buf();
 
     // Load config before the GUI starts so errors surface in a dialog (FR4).
@@ -669,7 +675,7 @@ fn main() -> eframe::Result {
     // Persistent store (spec 005): load the cached index + frecency instantly so
     // the picker is usable at once; `App::start_reconcile` refreshes them from
     // the filesystem in the background.
-    let store_path = dirs.config_dir().join("atref").join("index.redb");
+    let store_path = atref_dir.join("index.redb");
     let store = store::Store::open_or_reset(&store_path);
     let index = store.load_entries();
     let frecency = store.load_frecency();

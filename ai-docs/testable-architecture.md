@@ -81,6 +81,14 @@ foreground/keystroke timing). Proven in the spike's `insertion_proof`.
 dir (create/delete files, poll until the index converges). Headless, with a
 timeout for determinism.
 
+### Live GUI — the real `.exe`, via UIA
+The one lane that needs the running app. `eframe` ships AccessKit, so the live
+egui picker is a Windows UIA provider: launch the binary isolated (`ATREF_DIR`
+seam), inject the global chord + typing with `enigo`, read the picker by element
+name/role with `uiautomation`, and screenshot with `xcap`. `#[ignore]`d (it
+takes desktop focus) and run deliberately. Full recipe + the two modes
+(deterministic gate vs. ad-hoc "eyes") in `ai-docs/agentic-gui-testing.md`.
+
 ## Validation methods (use these labels in specs)
 
 | Label | Means | Human? |
@@ -89,18 +97,19 @@ timeout for determinism.
 | `integration` | `cargo test` against a temp fixture (dir / git repo / `EDIT` control / synthetic event) | no |
 | `kittest-input` | `egui_kittest` simulated input + state assertion | no |
 | `kittest-snapshot` | `egui_kittest` image diff vs an approved baseline | one-time baseline approval, then no |
+| `live-gui` | drive the running `.exe` with `enigo` + read it via Windows UIA + screenshot (`xcap`) | no (but takes desktop focus) |
 | `manual` | a human looks or acts | yes — minimize |
 
 ## The irreducible manual sliver
 
-Two things cannot be fully automated; keep them as a short scripted checklist,
-never the gate:
+The sliver shrank: the **global chord firing + the picker driving on the real
+desktop** is now automated by the `live-gui` harness (UIA + `enigo` + `xcap`) —
+see `ai-docs/agentic-gui-testing.md`. What remains genuinely manual is a single
+spot-check:
 
-- The **global chord firing while a real third-party app is focused** (OS input
-  routing). Partially automatable via SendInput + window-visibility, but
-  real-app coverage needs a human.
 - **Insertion into specific Electron apps** (Obsidian, VS Code) — the
-  `EDIT`-control fixture proves the mechanism; per-app quirks are a spot-check.
+  `EDIT`-control fixture proves the mechanism and `live-gui` proves the chord
+  path; per-app paste quirks are a quick human eyeball.
 
 Everything else should be automated.
 
@@ -124,6 +133,8 @@ Everything else should be automated.
 
 ## References
 
+- **Live-GUI testing:** `ai-docs/agentic-gui-testing.md` (driving the running
+  app via UIA + `enigo` + `xcap`).
 - Proof spike: `D:\jfuchs\dev\atref-spike-testability` (delete once specs 002/003
   carry these tests for real).
 - Specs: `specs/*.md`.
