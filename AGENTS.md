@@ -15,6 +15,7 @@ chord anywhere → a fuzzy picker → insert an `@"absolute path"` at the caret.
 | Drafting OR implementing ANY spec | `ai-docs/testable-architecture.md`, then the spec | Follow the testable seams; make every AC code-verifiable |
 | Result quality (index/rank/watch) | `ai-docs/testable-architecture.md`, `specs/002-result-quality.md` | Spec → code behind seams → tests → ACs |
 | Picker look & feel | `ai-docs/testable-architecture.md`, `specs/003-picker-look-and-feel.md` | Spec → code → kittest snapshot/input tests |
+| The app/tray icon, `.ico`, the visual `@` mark | `ai-docs/icon-design.md` + `tools/` | Render-in-the-loop; measure centering with the overlay; hand-author the SVG |
 | Modifying behavior | The relevant spec + `src/` | Update spec first, then patch source |
 | Updating agent instructions | this file | Edit this index; keep it ~50 lines |
 

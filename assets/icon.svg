@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1FB89C"/>
+      <stop offset="1" stop-color="#12907A"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="60" fill="url(#tile)"/>
+  <g fill="none" stroke="#ffffff" stroke-width="28" stroke-linecap="round" stroke-linejoin="round">
+    <!-- outer ring: bigger rounded square, open lower-right; right edge drops to
+         meet the tail (the @ mouth) -->
+    <path d="M 168 212 L 94 212 Q 44 212 44 162 L 44 94 Q 44 44 94 44
+             L 162 44 Q 212 44 212 94 L 212 182"/>
+    <!-- inner 'a' bowl (bigger, centered) -->
+    <path d="M 146 96 L 100 96 Q 86 96 86 110 L 86 138 Q 86 152 100 152 L 146 152"/>
+    <!-- 'a' stem + horizontal tail connecting into the ring's lower-right -->
+    <path d="M 146 90 L 146 154 Q 146 182 174 182 L 200 182"/>
+  </g>
+</svg>
