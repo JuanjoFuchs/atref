@@ -2,9 +2,11 @@
   <!-- atref app/tray icon: a squared @ on a teal squircle, grid-aligned on a 256
        canvas (16px grid), centered on 128. Geometry measured from JJ's PowerPoint
        reference (tools/measure scans) and snapped to the grid:
-         outer frame  rounded square, centerline 48..208, rx 32 (closed)
+         outer frame  rounded square, centerline 48..208, rx 32, OPEN at the
+                      lower-right corner so it reads as a true at-sign
          inner square  the 'a' body, centerline 96..160 (open/teal counter)
-         tail          straight from the inner square's bottom-right to the frame
+         tail          straight from the inner square to the frame's right side,
+                      meeting it at the top of the opening; rounded tips
        Even 24px gaps all round; stroke width 24, round caps/joins. -->
   <defs>
     <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
@@ -14,8 +16,13 @@
   </defs>
   <rect x="8" y="8" width="240" height="240" rx="60" fill="url(#tile)"/>
   <g fill="none" stroke="#ffffff" stroke-width="24" stroke-linecap="round" stroke-linejoin="round">
-    <rect x="48" y="48" width="160" height="160" rx="32"/>
+    <!-- outer frame, open at the lower-right (right edge stops at 208,160;
+         bottom edge stops at 160,208) -->
+    <path d="M 208 160 L 208 80 Q 208 48 176 48 L 80 48 Q 48 48 48 80
+             L 48 176 Q 48 208 80 208 L 160 208"/>
+    <!-- inner square 'a' body -->
     <rect x="96" y="96" width="64" height="64" rx="4"/>
+    <!-- tail straight to the frame's right side -->
     <path d="M 160 160 L 208 160"/>
   </g>
 </svg>
