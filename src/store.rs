@@ -115,7 +115,9 @@ impl Store {
         self.try_load_frecency().unwrap_or_default()
     }
 
-    fn try_load_frecency(&self) -> Result<HashMap<PathBuf, (u32, SystemTime)>, Box<dyn std::error::Error>> {
+    fn try_load_frecency(
+        &self,
+    ) -> Result<HashMap<PathBuf, (u32, SystemTime)>, Box<dyn std::error::Error>> {
         let read = self.db.begin_read()?;
         let table = match read.open_table(FRECENCY) {
             Ok(t) => t,
