@@ -3,6 +3,7 @@
 //! The GUI, tray, hotkey, and OS-injection wiring live in `main.rs`; everything
 //! that can be tested without a screen lives here.
 
+pub mod cli;
 pub mod config;
 pub mod frecency;
 pub mod icon;

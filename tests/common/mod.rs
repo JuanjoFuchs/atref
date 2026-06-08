@@ -12,6 +12,7 @@
 
 use std::path::PathBuf;
 use std::process::{Child, Command};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
@@ -52,6 +53,32 @@ impl Drop for Atref {
         let _ = self.child.wait();
         let _ = std::fs::remove_dir_all(&self.base);
     }
+}
+
+impl Atref {
+    /// The isolated config dir the process runs against (its `ATREF_DIR`).
+    pub fn home(&self) -> PathBuf {
+        self.base.join("home")
+    }
+
+    /// Create an extra folder under the isolated base with one marker file and
+    /// return its path — for tests that add a folder *after* launch.
+    pub fn make_extra_folder(&self, name: &str, file: &str, body: &str) -> PathBuf {
+        let dir = self.base.join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(file), body).unwrap();
+        dir
+    }
+}
+
+/// Serialize live-GUI tests: only one atref can own the global chord at a time,
+/// so these tests must not run concurrently. Each test holds this guard for its
+/// whole body. Poison is ignored — a panicking test shouldn't wedge the rest.
+pub fn e2e_lock() -> MutexGuard<'static, ()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
 }
 
 /// Launch atref against a fresh, isolated config + index folder so the run never

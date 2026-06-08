@@ -42,3 +42,38 @@ pub fn spawn(
 
     Some(Box::new(debouncer) as Box<dyn Any>)
 }
+
+/// Watch a single config file and invoke `on_change` (debounced) whenever *that
+/// file* is created, modified, or replaced — including atomic replace-on-save,
+/// by watching its parent directory and filtering on the file name. Sibling
+/// files in the same directory (e.g. the `index.redb` store, which is written
+/// often) are ignored, so they never trigger a reload. Returns an opaque guard
+/// that must be kept alive (dropping it stops watching), or `None` if the watch
+/// could not be created (spec 006).
+pub fn spawn_config(
+    config_path: PathBuf,
+    debounce: Duration,
+    on_change: impl Fn() + Send + 'static,
+) -> Option<Box<dyn Any>> {
+    let dir = config_path.parent()?.to_path_buf();
+    let file_name = config_path.file_name()?.to_os_string();
+    let mut debouncer = new_debouncer(debounce, None, move |res: DebounceEventResult| {
+        if let Ok(events) = res {
+            // A rename/replace surfaces the destination path, so matching on the
+            // file name catches both in-place writes and atomic replace-on-save.
+            let touched = events
+                .iter()
+                .flat_map(|ev| ev.paths.iter())
+                .any(|p| p.file_name() == Some(file_name.as_os_str()));
+            if touched {
+                on_change();
+            }
+        }
+    })
+    .ok()?;
+    // Non-recursive: the config dir holds only config.json + the store; we filter
+    // to config.json above.
+    debouncer.watch(&dir, RecursiveMode::NonRecursive).ok()?;
+
+    Some(Box::new(debouncer) as Box<dyn Any>)
+}
