@@ -1,6 +1,6 @@
 [package]
 name = "atref"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 description = "Global file-reference picker: press a chord in any text field, fuzzy-pick a file, and insert an @-quoted absolute path at the caret."
 authors = ["Juan José Fuchs"]
@@ -21,6 +21,7 @@ ignore = "0.4"
 notify = "8"
 notify-debouncer-full = "0.7"
 nucleo-matcher = "0.3.1"
+redb = "2"
 rfd = "0.17.2"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"

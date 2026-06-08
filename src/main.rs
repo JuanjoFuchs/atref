@@ -11,10 +11,11 @@
 //! visible but parked off-screen, then moved on-screen to "show".
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::collections::HashMap;
 use std::ffi::c_void;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use eframe::egui;
 use enigo::{Direction, Enigo, Key, Keyboard, Settings};
@@ -33,10 +34,12 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 use atref::config::Config;
+use atref::frecency;
 use atref::index::{self, Entry};
 use atref::picker;
 use atref::reference;
 use atref::search;
+use atref::store;
 use atref::watch;
 
 /// Off-screen parking spot for the "hidden" state (see the TC7 note above).
@@ -83,6 +86,11 @@ struct App {
     config: Config,
     index: Vec<Entry>,
     matcher: Matcher,
+    /// Persistent index cache + frecency ledger (spec 005).
+    store: store::Store,
+    /// In-memory frecency ledger: `path -> (pick_count, last_picked)`. Loaded
+    /// from the store at startup, bumped on each pick, fed into `search::rank`.
+    frecency: HashMap<PathBuf, (u32, SystemTime)>,
 
     // Kept alive for the lifetime of the app.
     hotkeys: GlobalHotKeyManager,
@@ -118,7 +126,9 @@ impl App {
         config_path: PathBuf,
         home: PathBuf,
         config: Config,
+        store: store::Store,
         index: Vec<Entry>,
+        frecency: HashMap<PathBuf, (u32, SystemTime)>,
     ) -> Self {
         let matcher = Matcher::new(MatcherConfig::DEFAULT.match_paths());
         picker::install_theme(&cc.egui_ctx);
@@ -198,6 +208,8 @@ impl App {
             config,
             index,
             matcher,
+            store,
+            frecency,
             hotkeys,
             current_chord,
             tray,
@@ -216,7 +228,11 @@ impl App {
             focus_armed: false,
             region_applied: false,
         };
+        // Show the cached index immediately; reconcile against the filesystem in
+        // the background (spec 005 load-then-reconcile). The watcher must be
+        // armed first so both share the current generation.
         app.start_watcher();
+        app.start_reconcile();
         app
     }
 
@@ -256,13 +272,27 @@ impl App {
         }
     }
 
-    /// Accept the selected row: hide, then insert `@"<abs>"` at the caret (FR11).
+    /// Accept the selected row: record the pick, hide, then insert `@"<abs>"` at
+    /// the caret (FR11; spec 005 FR4 pick recording).
     fn accept(&mut self, ctx: &egui::Context) {
         let Some(&idx) = self.results.get(self.selected) else {
             return;
         };
-        let text = reference::at_quoted(&self.index[idx].abs);
+        let abs = self.index[idx].abs.clone();
+        let text = reference::at_quoted(&abs);
         let target = self.target_hwnd;
+
+        // Record the pick: bump the in-memory ledger now so the next empty query
+        // reflects it immediately, and persist off the UI thread (FR4/AC5).
+        let entry = self
+            .frecency
+            .entry(abs.clone())
+            .or_insert((0, SystemTime::UNIX_EPOCH));
+        entry.0 = entry.0.saturating_add(1);
+        entry.1 = SystemTime::now();
+        let store = self.store.clone();
+        std::thread::spawn(move || store.record_pick(&abs));
+
         self.hide(ctx);
         // Off the UI thread so the event loop keeps spinning during the
         // clipboard save / paste / restore dance.
@@ -277,13 +307,32 @@ impl App {
         }
         self.last_query = Some(self.query.clone());
         self.selected = 0;
-        let (results, total) =
-            search::rank(&self.query, &self.index, &mut self.matcher, MAX_RESULTS);
+        // Per-entry frecency scores (parallel to `index`), computed here so
+        // `search::rank` stays pure of `now()` (spec 005 FR6).
+        let now = SystemTime::now();
+        let scores: Vec<f64> = self
+            .index
+            .iter()
+            .map(|e| match self.frecency.get(&e.abs) {
+                Some(&(count, last)) => {
+                    frecency::score(count, now.duration_since(last).unwrap_or_default())
+                }
+                None => 0.0,
+            })
+            .collect();
+        let (results, total) = search::rank(
+            &self.query,
+            &self.index,
+            &scores,
+            &mut self.matcher,
+            MAX_RESULTS,
+        );
         self.results = results;
         self.match_total = total;
     }
 
-    /// Re-read config, rebuild the index, re-register the chord (FR2 Reload).
+    /// Re-read config, re-register the chord, and reconcile the index + store
+    /// against the (possibly new) folder set (FR2 Reload; spec 005 FR8).
     fn reload(&mut self) {
         match load_or_init(&self.config_path, &self.home) {
             Ok(cfg) => {
@@ -294,10 +343,13 @@ impl App {
                     Ok(hk) => self.current_chord = Some(hk),
                     Err(e) => error_dialog(&format!("Could not register chord: {e}")),
                 }
-                self.index = index::build(&cfg.folders, &cfg.exclude, cfg.git_aware);
-                self.last_query = None;
                 self.config = cfg;
+                self.last_query = None;
+                // Same load-then-reconcile path as startup: the background walk
+                // rebuilds the index, persists it, and prunes the store for the
+                // new folder set (FR8). The cached index stays usable meanwhile.
                 self.start_watcher();
+                self.start_reconcile();
             }
             Err(e) => error_dialog(&format!(
                 "Reload failed:\n{e}\n\nKeeping the previous configuration."
@@ -306,21 +358,47 @@ impl App {
     }
 
     /// (Re)start the live file-watcher against the current folder set (FR6/FR8).
+    /// Each rebuild writes through to the store before swapping in memory (spec
+    /// 005 FR3).
     fn start_watcher(&mut self) {
         self.watch_generation += 1;
         let generation = self.watch_generation;
         let tx = self.tx.clone();
         let ctx = self.ctx.clone();
+        let store = self.store.clone();
         self.debouncer = watch::spawn(
             self.config.folders.clone(),
             self.config.exclude.clone(),
             self.config.git_aware,
             Duration::from_millis(800),
             move |index| {
+                // Persist before sending so the on-disk cache is never behind
+                // the in-memory index (the closure runs on the watcher thread).
+                store.persist(&index);
                 let _ = tx.send(Msg::IndexReady { generation, index });
                 ctx.request_repaint();
             },
         );
+    }
+
+    /// Walk the configured folders in the background, persist the result to the
+    /// store, and swap it into memory — without blocking startup on the walk
+    /// (spec 005 load-then-reconcile, FR2). Tagged with the current generation
+    /// so a later Reload discards a stale in-flight result.
+    fn start_reconcile(&mut self) {
+        let generation = self.watch_generation;
+        let folders = self.config.folders.clone();
+        let exclude = self.config.exclude.clone();
+        let git_aware = self.config.git_aware;
+        let store = self.store.clone();
+        let tx = self.tx.clone();
+        let ctx = self.ctx.clone();
+        std::thread::spawn(move || {
+            let index = index::build(&folders, &exclude, git_aware);
+            store.persist(&index);
+            let _ = tx.send(Msg::IndexReady { generation, index });
+            ctx.request_repaint();
+        });
     }
 }
 
@@ -588,7 +666,13 @@ fn main() -> eframe::Result {
             std::process::exit(1);
         }
     };
-    let index = index::build(&config.folders, &config.exclude, config.git_aware);
+    // Persistent store (spec 005): load the cached index + frecency instantly so
+    // the picker is usable at once; `App::start_reconcile` refreshes them from
+    // the filesystem in the background.
+    let store_path = dirs.config_dir().join("atref").join("index.redb");
+    let store = store::Store::open_or_reset(&store_path);
+    let index = store.load_entries();
+    let frecency = store.load_frecency();
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -603,7 +687,17 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "atref",
         native_options,
-        Box::new(move |cc| Ok(Box::new(App::new(cc, config_path, home, config, index)))),
+        Box::new(move |cc| {
+            Ok(Box::new(App::new(
+                cc,
+                config_path,
+                home,
+                config,
+                store,
+                index,
+                frecency,
+            )))
+        }),
     )
 }
 

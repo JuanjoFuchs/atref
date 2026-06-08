@@ -4,8 +4,10 @@
 //! that can be tested without a screen lives here.
 
 pub mod config;
+pub mod frecency;
 pub mod index;
 pub mod picker;
 pub mod reference;
 pub mod search;
+pub mod store;
 pub mod watch;
