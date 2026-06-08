@@ -616,14 +616,15 @@ fn open_in_editor(path: &Path) {
         .spawn();
 }
 
-/// A 16×16 solid teal tray icon (placeholder art for v0.1).
+/// The atref tray icon — the designed `@` mark, embedded as raw RGBA (generated
+/// from `assets/icon.svg` via `tools/`; see `ai-docs/icon-design.md`).
 fn make_icon() -> Icon {
-    let (w, h) = (16u32, 16u32);
-    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
-    for _ in 0..(w * h) {
-        rgba.extend_from_slice(&[0x16, 0xA3, 0x8A, 0xFF]);
-    }
-    Icon::from_rgba(rgba, w, h).expect("valid icon")
+    Icon::from_rgba(
+        atref::icon::TRAY_RGBA.to_vec(),
+        atref::icon::TRAY_W,
+        atref::icon::TRAY_H,
+    )
+    .expect("valid tray icon")
 }
 
 /// Show a native error dialog (there is no console in release — FR4).

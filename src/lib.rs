@@ -5,6 +5,7 @@
 
 pub mod config;
 pub mod frecency;
+pub mod icon;
 pub mod index;
 pub mod picker;
 pub mod reference;
