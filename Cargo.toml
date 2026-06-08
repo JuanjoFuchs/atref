@@ -28,6 +28,10 @@ serde_json = "1.0.150"
 tray-icon = "0.24"
 windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_UI_Input_KeyboardAndMouse"] }
 
+[build-dependencies]
+# Embed the Windows .exe / Explorer / taskbar icon (assets/icon.ico) at build time.
+winresource = "0.1"
+
 [dev-dependencies]
 egui_kittest = { version = "0.33", features = ["wgpu", "snapshot"] }
 # Agentic GUI E2E spike (branch spike/agentic-e2e): drive the live app via the
