@@ -1,0 +1,78 @@
+name: Publish to WinGet
+
+on:
+  release:
+    types: [released]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag, for example v0.5.1"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish-to-winget:
+    runs-on: windows-latest
+    steps:
+      - name: Get release information
+        id: release
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $tag = "${{ inputs.release_tag }}"
+            $release = Invoke-RestMethod -Uri "https://api.github.com/repos/${{ github.repository }}/releases/tags/$tag" -Headers @{
+              "Accept" = "application/vnd.github+json"
+              "X-GitHub-Api-Version" = "2022-11-28"
+            }
+            $assets = $release.assets | ConvertTo-Json -Compress
+          } else {
+            $tag = "${{ github.event.release.tag_name }}"
+            $assets = '${{ toJson(github.event.release.assets) }}'
+          }
+
+          Write-Output "tag=$tag" >> $env:GITHUB_OUTPUT
+          Write-Output "assets=$assets" >> $env:GITHUB_OUTPUT
+
+      - name: Extract version from tag
+        id: version
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.release.outputs.tag }}"
+          $version = $tag -replace '^v', ''
+          Write-Output "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Extract installer URL
+        id: installer
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $assets = '${{ steps.release.outputs.assets }}' | ConvertFrom-Json
+          $exe = $assets | Where-Object { $_.name -match "atref-$version-windows-x64\.exe$" }
+          if ($null -eq $exe) {
+            Write-Error "Windows x64 executable not found in release assets"
+            exit 1
+          }
+          Write-Output "installer_url=$($exe.browser_download_url)" >> $env:GITHUB_OUTPUT
+
+      - name: Download WinGet Create
+        shell: pwsh
+        run: Invoke-WebRequest -Uri https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
+
+      - name: Update WinGet package
+        shell: pwsh
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          .\wingetcreate.exe update JuanjoFuchs.atref `
+            --version "${{ steps.version.outputs.version }}" `
+            --urls "${{ steps.installer.outputs.installer_url }}" `
+            --token $env:WINGET_TOKEN `
+            --submit
+
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "wingetcreate failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }

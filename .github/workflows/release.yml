@@ -1,0 +1,61 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    # Single Windows job: atref is Windows-only. `cargo build --release` runs the
+    # tauri-build step (embeds the static `ui/` frontend + the icon) and yields a
+    # self-contained portable `atref.exe` (uses the system WebView2). No
+    # `cargo tauri build` / installer and no crates.io publish this round — see
+    # specs/008-packaging.md.
+    runs-on: windows-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Resolve version from Cargo.toml
+        id: ver
+        shell: pwsh
+        run: |
+          $raw = Get-Content -Raw Cargo.toml
+          $v = ([regex]::Match($raw, '(?m)^version = "([^"]+)"')).Groups[1].Value
+          if (-not $v) { Write-Error "could not read [package].version"; exit 1 }
+          Write-Output "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Verify tag matches version (NFR3)
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}" -replace '^v', ''
+          if ($tag -ne "${{ steps.ver.outputs.version }}") {
+            Write-Error "tag $tag != Cargo.toml version ${{ steps.ver.outputs.version }}"
+            exit 1
+          }
+
+      - name: Build (release)
+        run: cargo build --release
+
+      - name: Stage release artifact
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item target/release/atref.exe "dist/atref-${{ steps.ver.outputs.version }}-windows-x64.exe"
+
+      - name: Smoke test the artifact
+        shell: pwsh
+        run: |
+          & "dist/atref-${{ steps.ver.outputs.version }}-windows-x64.exe" --version
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
