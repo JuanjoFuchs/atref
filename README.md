@@ -13,14 +13,30 @@ small CLI so agents can configure it.
 
 ## Install
 
+**WinGet** (after Microsoft approves the manifest):
+
 ```powershell
 winget install JuanjoFuchs.atref
 ```
 
-Or download `atref-<version>-windows-x64.exe` from the
-[latest release](https://github.com/JuanjoFuchs/atref/releases/latest) and run
-it (it's a portable executable; requires the Microsoft Edge WebView2 runtime,
-which ships with Windows 11).
+**Scoop:**
+
+```powershell
+scoop bucket add atref https://github.com/JuanjoFuchs/atref
+scoop install atref
+```
+
+**PowerShell one-liner** (downloads the latest `.exe` to a per-user dir + adds it to PATH):
+
+```powershell
+irm https://raw.githubusercontent.com/JuanjoFuchs/atref/main/install.ps1 | iex
+```
+
+**Direct download:** grab `atref-<version>-windows-x64.exe` from the
+[latest release](https://github.com/JuanjoFuchs/atref/releases/latest) and run it.
+
+Every path installs the same portable executable (requires the Microsoft Edge
+WebView2 runtime, which ships with Windows 11).
 
 ## Use
 

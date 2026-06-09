@@ -1,0 +1,29 @@
+{
+    "version": "0.5.0",
+    "description": "Global file-reference picker — press a chord, fuzzy-pick a file, and insert an @-quoted path at the caret. Also a config CLI for agents.",
+    "homepage": "https://github.com/JuanjoFuchs/atref",
+    "license": "MIT",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/JuanjoFuchs/atref/releases/download/v0.5.0/atref-0.5.0-windows-x64.exe#/atref.exe",
+            "hash": "a1507447c1761bb993e8c889de9c2f7572370bf2c7dbb9112cc071bf6b5a0d71"
+        }
+    },
+    "bin": "atref.exe",
+    "shortcuts": [
+        ["atref.exe", "atref"]
+    ],
+    "checkver": "github",
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/JuanjoFuchs/atref/releases/download/v$version/atref-$version-windows-x64.exe#/atref.exe"
+            }
+        }
+    },
+    "notes": [
+        "atref runs in the system tray — press Ctrl+Space to summon the picker.",
+        "Run 'atref describe' for the agent config CLI.",
+        "Requires the Microsoft Edge WebView2 runtime (ships with Windows 11)."
+    ]
+}

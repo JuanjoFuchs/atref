@@ -1,0 +1,24 @@
+name: Excavator
+
+# Keeps the Scoop manifest (bucket/atref.json) current: on a schedule, checkver +
+# autoupdate detect a new GitHub Release and commit the version/url/hash bump. The
+# atref repo doubles as its own Scoop bucket (users: `scoop bucket add atref
+# https://github.com/JuanjoFuchs/atref`).
+on:
+  schedule:
+    - cron: "23 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  excavate:
+    name: Excavate
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Auto-update Scoop manifest
+        uses: ScoopInstaller/GithubActions@main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

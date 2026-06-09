@@ -53,6 +53,13 @@ After this spec was drafted, atref's GUI was rewritten from egui/eframe to
 Pipeline: `.github/workflows/{ci,release,winget-init,winget-publish}.yml`, adapted
 from the agent-mail winget workflows.
 
+**Channels added 2026-06-09:** beyond GitHub Release + WinGet, atref also ships via
+**Scoop** (this repo doubles as a Scoop bucket — `bucket/atref.json`, auto-updated
+by `.github/workflows/excavator.yml`; `scoop bucket add atref <repo>` then
+`scoop install atref`) and a **PowerShell installer** (`install.ps1`, run as
+`irm …/install.ps1 | iex` — downloads the latest `.exe` to a per-user dir + adds it
+to PATH). Both serve the same portable `atref.exe`.
+
 ## Goals
 
 - `cargo install atref`, a one-click `atref.exe` download, and `winget install
