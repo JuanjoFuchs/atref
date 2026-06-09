@@ -166,12 +166,8 @@ fn remove_list(key: &str, value: &str, config_path: &Path, home: &Path) -> CliOu
             if !cfg.folders.contains(&p) {
                 return commit(cfg, config_path, "remove", "folders", &abs, false);
             }
-            if cfg.folders.len() == 1 {
-                return CliOutcome::err(
-                    "refusing to remove the last folder — `folders` must list at least one directory"
-                        .to_string(),
-                );
-            }
+            // Removing the last folder is allowed — an empty index is a valid
+            // blank-slate state, not an error.
             cfg.folders.retain(|f| f != &p);
             commit(cfg, config_path, "remove", "folders", &abs, true)
         }
@@ -297,7 +293,7 @@ fn describe_json(config_path: &Path) -> String {
             "(no args)": "Launch the tray app."
         },
         "fields": {
-            "folders":   { "kind": "list",   "type": "absolute path", "default": "[home]",                       "validation": "must stay non-empty; values normalized to absolute" },
+            "folders":   { "kind": "list",   "type": "absolute path", "default": "[home]",                       "validation": "values normalized to absolute; may be empty" },
             "exclude":   { "kind": "list",   "type": "string",        "default": [".git", "node_modules", "target"] },
             "chord":     { "kind": "scalar", "type": "string",        "default": "Control+Space",                 "validation": "must parse as a global-hotkey chord" },
             "git_aware": { "kind": "scalar", "type": "bool",          "default": true }
@@ -432,8 +428,9 @@ mod tests {
     }
 
     #[test]
-    fn remove_last_folder_is_refused() {
-        // AC9: cannot empty `folders`.
+    fn remove_last_folder_empties_the_list() {
+        // AC9: removing the last folder is allowed — `folders` may be empty
+        // (a valid blank-slate state), so it succeeds and leaves `[]`.
         let (cfg, home) = setup("lastfolder");
         // default has exactly one folder (home)
         run_args(&["config", "get"], &cfg, &home); // no-op read
@@ -445,8 +442,8 @@ mod tests {
             &cfg,
             &home,
         );
-        assert_eq!(out.code, 2, "removing the last folder is refused");
-        assert!(out.stderr.contains("last folder"));
+        assert_eq!(out.code, 0, "removing the last folder succeeds");
+        assert!(load(&cfg).folders.is_empty(), "folders is now empty");
     }
 
     #[test]

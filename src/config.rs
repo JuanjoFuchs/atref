@@ -7,7 +7,8 @@ use serde::{Deserialize, Serialize};
 /// User configuration. Mirrors the on-disk JSON schema (FR3).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Config {
-    /// Absolute directory paths to index. Must be non-empty.
+    /// Absolute directory paths to index. May be empty — the picker then
+    /// indexes nothing, a valid blank-slate state.
     pub folders: Vec<PathBuf>,
     /// Global chord, in `global-hotkey` `HotKey::from_str` syntax.
     pub chord: String,
@@ -53,9 +54,8 @@ impl Config {
 
     /// Schema validation beyond what serde enforces (FR4).
     pub fn validate(&self) -> Result<(), String> {
-        if self.folders.is_empty() {
-            return Err("`folders` must list at least one directory".to_string());
-        }
+        // `folders` may be empty: an empty index is a valid blank-slate state
+        // (e.g. while an agent is wiring folders up), not a config error.
         if self.chord.trim().is_empty() {
             return Err("`chord` must not be empty".to_string());
         }
@@ -91,10 +91,12 @@ mod tests {
     }
 
     #[test]
-    fn empty_folders_is_rejected() {
-        // AC6: schema-invalid (no folders) is an error.
+    fn empty_folders_is_allowed() {
+        // An empty `folders` list is a valid blank-slate state (index nothing),
+        // not an error — agents can clear folders and add them back.
         let json = r#"{"folders": [], "chord": "Control+Space"}"#;
-        assert!(Config::from_json(json).is_err());
+        let cfg = Config::from_json(json).unwrap();
+        assert!(cfg.folders.is_empty());
     }
 
     #[test]

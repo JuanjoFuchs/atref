@@ -77,7 +77,8 @@ a follow-up spec.
   }
   ```
 
-  `folders` is a non-empty array of absolute directory paths. `chord` uses
+  `folders` is an array of absolute directory paths (it may be empty, in which
+  case nothing is indexed). `chord` uses
   [`HotKey::from_str`](https://docs.rs/global-hotkey/) syntax (e.g.
   `"Control+Space"`, `"Alt+Shift+P"`). `exclude` is a list of directory
   names pruned during traversal. Defaults: `folders = [user home]`,
@@ -85,7 +86,7 @@ a follow-up spec.
   "target"]`.
 - **FR4 — Config errors without a console.** Because there is no console,
   a missing-but-uncreatable, unreadable, malformed, or schema-invalid
-  (e.g. empty `folders`) `config.json` surfaces as a **native error
+  (e.g. an unparseable `chord`) `config.json` surfaces as a **native error
   dialog** describing the problem. On **launch** with no usable config,
   atref shows the dialog and exits non-zero without registering the chord.
   On **Reload config** with a bad file, atref shows the dialog and keeps

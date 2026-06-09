@@ -78,10 +78,10 @@ output, strict validation, a `describe`/schema command, safety rails on mutation
   the same parser the app uses to register it, **before** writing. An invalid
   result is never persisted. Writes are atomic (a partial/half-written
   `config.json` is never observable to the spec-006 watcher).
-- **FR7**: Safety rails on mutations: `remove folders` that would empty `folders`
-  is refused (it must stay non-empty) → message + non-zero exit, no write; an
-  unparseable `chord` is rejected with the parser's exact error; a non-boolean
-  `git_aware` is rejected.
+- **FR7**: Safety rails on mutations: an unparseable `chord` is rejected with the
+  parser's exact error, and a non-boolean `git_aware` is rejected — both →
+  message + non-zero exit, no write. `folders` *may* be emptied: an empty index is
+  a valid blank-slate state, so `remove folders <last>` succeeds and leaves `[]`.
 - **FR8**: `atref` with no arguments launches the tray app exactly as today (no
   behavior change).
 - **FR9**: The CLI never opens the persistent store; it only reads/writes
@@ -136,7 +136,7 @@ Config fields (the schema `describe` reports):
 
 | Key | Kind | Value type | Default | Validation |
 |-----|------|-----------|---------|-----------|
-| `folders` | list | absolute path | `[home]` | must stay non-empty; values normalized to absolute |
+| `folders` | list | absolute path | `[home]` | values normalized to absolute; may be empty |
 | `exclude` | list | string | `[.git, node_modules, target]` | — |
 | `chord` | scalar | string | `Control+Space` | must parse as a global-hotkey chord |
 | `git_aware` | scalar | bool | `true` | must be a boolean |
@@ -160,7 +160,7 @@ Representative `describe` output (exact wording derived from the existing
     "(no args)": "Launch the tray app."
   },
   "fields": {
-    "folders":   { "kind": "list",   "type": "abs path", "default": "[home]",                    "validation": "non-empty; absolute" },
+    "folders":   { "kind": "list",   "type": "abs path", "default": "[home]",                    "validation": "absolute; may be empty" },
     "exclude":   { "kind": "list",   "type": "string",   "default": "[.git, node_modules, target]" },
     "chord":     { "kind": "scalar", "type": "string",   "default": "Control+Space",             "validation": "parses as a chord" },
     "git_aware": { "kind": "scalar", "type": "bool",     "default": true }
@@ -183,8 +183,8 @@ Representative mutation result (stdout, exit 0) and error (stderr, non-zero):
 - [x] Implement `config get [KEY]`, `set`, `add`, `remove` over `config.json`,
       reusing the app's load/validate logic and the chord parser; load-or-create
       from the first-run default; write atomically only when the result validates.
-- [x] Enforce the safety rails (non-empty `folders`, chord parse, bool `git_aware`)
-      and idempotency for list add/remove; keep the `atref add [PATH]` shortcut.
+- [x] Enforce the safety rails (chord parse, bool `git_aware`) and idempotency for
+      list add/remove; keep the `atref add [PATH]` shortcut.
 - [x] Ensure no command opens the store or walks folders.
 
 ## Acceptance Criteria
@@ -216,9 +216,9 @@ Representative mutation result (stdout, exit 0) and error (stderr, non-zero):
 - [x] **AC8** (`integration`): `config add exclude node_modules` adds the value
       idempotently; `config remove exclude target` removes it, and removing an
       absent value is a no-op success. (FR4, FR5)
-- [x] **AC9** (`integration`): `config remove folders <last>` is refused (non-empty
-      rail) → non-zero + message, file unchanged; removing a non-last folder
-      succeeds. (FR7)
+- [x] **AC9** (`integration`): `config remove folders <last>` succeeds and leaves
+      `folders` empty (a valid blank-slate state); removing an absent folder is a
+      no-op success. (FR7)
 - [x] **AC10** (`integration`): `atref add <dir>` equals `config add folders <dir>`,
       and `atref add` with no PATH adds the current working directory (absolute).
       (FR11)
