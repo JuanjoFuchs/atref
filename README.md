@@ -17,8 +17,12 @@
 </p>
 
 <p align="center">
-  <video src="https://github.com/JuanjoFuchs/atref/raw/main/docs/demo.mp4" controls width="760"></video>
+  <a href="https://github.com/JuanjoFuchs/atref/blob/main/docs/demo.mp4">
+    <img src="docs/picker-guides.png" alt="atref demo — click to play the 30-second walkthrough" width="760">
+  </a>
 </p>
+
+<p align="center"><em>▶ <a href="https://github.com/JuanjoFuchs/atref/blob/main/docs/demo.mp4">Watch the 30-second demo</a></em></p>
 
 A global file-reference picker for Windows. Press a keyboard chord anywhere —
 terminal, browser, Obsidian, chat app, IDE — and an unobtrusive fuzzy picker pops
@@ -93,12 +97,6 @@ and the config-file path), so an agent can wire up your folders via
 `atref config add folders …` without you reading the rest of this README.
 
 ## Screenshots
-
-<p align="center">
-  <img src="docs/picker-guides.png" alt="atref picker listing files from an indexed folder" width="760">
-</p>
-
-<p align="center"><em>Summon anywhere — an empty query leads with your recent and most-used files.</em></p>
 
 <p align="center">
   <img src="docs/fuzzy-match.png" alt="atref fuzzy-matching a typed query down to a single file" width="760">
