@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-06-09
+
+### Added
+- **Start Menu shortcut** — the PowerShell installer (`install.ps1`) now creates a
+  per-user Start Menu shortcut, so atref is searchable from Start after an
+  `irm | iex` install (not just runnable from a new terminal). Matches Scoop.
+
+### Changed
+- **`folders` may be empty** — an empty `folders` list is now a valid blank-slate
+  state (the picker indexes nothing) rather than a validation error, and
+  `atref config remove folders <last>` succeeds instead of being refused. Lets an
+  agent — or a human mid-swap — clear folders and add them back. (spec 007)
+
 ## [0.5.0] - 2026-06-08
 
 First public release. Windows system-tray file-reference picker.
@@ -40,5 +53,6 @@ First public release. Windows system-tray file-reference picker.
   the spec-001 redefinition).
 - Windows-only; macOS/Linux are a future port.
 
-[Unreleased]: https://github.com/JuanjoFuchs/atref/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/JuanjoFuchs/atref/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/JuanjoFuchs/atref/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/JuanjoFuchs/atref/releases/tag/v0.5.0
