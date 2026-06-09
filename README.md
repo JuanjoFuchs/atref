@@ -9,11 +9,15 @@
 [![License](https://img.shields.io/github/license/JuanjoFuchs/atref)](LICENSE)
 
 <p align="center">
-  <img src="icons/icon.png" alt="atref" width="96">
+  <img src="icons/icon.png" alt="atref" width="72">
 </p>
 
 <p align="center">
   <strong>Claude Code's <code>@</code> file picker — everywhere.</strong>
+</p>
+
+<p align="center">
+  <video src="https://github.com/JuanjoFuchs/atref/raw/main/docs/demo.mp4" controls width="760"></video>
 </p>
 
 A global file-reference picker for Windows. Press a keyboard chord anywhere —
@@ -87,6 +91,20 @@ Right-click the tray icon to open the config, reload it, or quit.
 `atref describe` emits structured JSON (the command surface, the config schema,
 and the config-file path), so an agent can wire up your folders via
 `atref config add folders …` without you reading the rest of this README.
+
+## Screenshots
+
+<p align="center">
+  <img src="docs/picker-guides.png" alt="atref picker listing files from an indexed folder" width="760">
+</p>
+
+<p align="center"><em>Summon anywhere — an empty query leads with your recent and most-used files.</em></p>
+
+<p align="center">
+  <img src="docs/fuzzy-match.png" alt="atref fuzzy-matching a typed query down to a single file" width="760">
+</p>
+
+<p align="center"><em>Type to fuzzy-filter — "writing style guide" narrows straight to the file.</em></p>
 
 ## Configure
 
