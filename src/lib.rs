@@ -194,14 +194,21 @@ fn accept(abs: String, app: AppHandle, state: State<'_, Mutex<AppState>>) {
     std::thread::spawn(move || win32::insert_reference(&text, target));
 }
 
-/// Dismiss the picker and return focus to the app that was focused on summon.
+/// Dismiss the picker. `restore` returns focus to the app that was focused on
+/// summon — right for an explicit dismissal (Esc / ✕), wrong for blur: on blur
+/// the user already focused something else, and yanking the foreground back
+/// would also instantly dismiss any popup the new foreground owns (the tray
+/// menu opened and closed in a flash, because opening it foregrounds the tray's
+/// own window, which blurred the picker, whose hide stole the foreground back).
 #[tauri::command]
-fn hide(app: AppHandle, state: State<'_, Mutex<AppState>>) {
+fn hide(restore: bool, app: AppHandle, state: State<'_, Mutex<AppState>>) {
     let target = state.lock().unwrap().target;
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.hide();
     }
-    win32::set_foreground(target);
+    if restore {
+        win32::set_foreground(target);
+    }
 }
 
 /// Show the picker near the cursor, capturing the foreground window first so a

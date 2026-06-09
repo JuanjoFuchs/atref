@@ -269,8 +269,11 @@
         const r = rows[i];
         if (r) await invoke("accept", { abs: r.abs });
       }
-      async function hide() {
-        await invoke("hide");
+      // Explicit dismissal (Esc / ✕) returns focus to the pre-summon app; a
+      // blur means focus already went somewhere on purpose — stealing it back
+      // would (among other rudeness) instantly close the tray menu.
+      async function hide(restore) {
+        await invoke("hide", { restore: restore === true });
       }
 
       q.addEventListener("input", doSearch);
@@ -278,11 +281,12 @@
         if (e.key === "ArrowDown") { sel = Math.min(sel + 1, rows.length - 1); render(); e.preventDefault(); }
         else if (e.key === "ArrowUp") { sel = Math.max(sel - 1, 0); render(); e.preventDefault(); }
         else if (e.key === "Enter") { accept(sel); e.preventDefault(); }
-        else if (e.key === "Escape") { hide(); e.preventDefault(); }
+        else if (e.key === "Escape") { hide(true); e.preventDefault(); }
       });
-      closeEl.addEventListener("click", hide);
-      // Click outside / focus loss dismisses the picker.
-      window.addEventListener("blur", hide);
+      closeEl.addEventListener("click", () => hide(true));
+      // Click outside / focus loss dismisses the picker — without restoring
+      // focus (it already moved where the user wanted).
+      window.addEventListener("blur", () => hide(false));
       // On summon: clear the query, refocus the box, re-search. The enrich
       // cache resets too — files may have changed since the last summon (the
       // backend cache revalidates by mtime).

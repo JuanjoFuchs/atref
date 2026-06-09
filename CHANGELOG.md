@@ -25,6 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   filesystem metadata for OneDrive/Dropbox cloud-only files
   (`FILE_ATTRIBUTE_OFFLINE` / `RECALL_ON_DATA_ACCESS`), so browsing results
   can't trigger hydration.
+- **Tray menu no longer closes instantly while the picker is open** — opening
+  the tray menu foregrounds the tray's own window, which blurred the picker;
+  the picker's blur-hide then yanked the foreground back to the pre-summon app,
+  dismissing the menu in a flash. Blur-dismissal now leaves focus where the
+  user put it; only explicit dismissal (`Esc` / ✕) restores focus.
 
 ## [0.5.1] - 2026-06-09
 
