@@ -1,12 +1,12 @@
 {
-    "version": "0.5.1",
+    "version": "0.6.0",
     "description": "Global file-reference picker — press a chord, fuzzy-pick a file, and insert an @-quoted path at the caret. Also a config CLI for agents.",
     "homepage": "https://github.com/JuanjoFuchs/atref",
     "license": "MIT",
     "architecture": {
         "64bit": {
-            "url": "https://github.com/JuanjoFuchs/atref/releases/download/v0.5.1/atref-0.5.1-windows-x64.exe#/atref.exe",
-            "hash": "ed63bcd269586c1754899177468044109722c1050470cf5236946eeb3acb0bb1"
+            "url": "https://github.com/JuanjoFuchs/atref/releases/download/v0.6.0/atref-0.6.0-windows-x64.exe#/atref.exe",
+            "hash": "2b5155280a0e19954bec2e36b56923620cba4115309d7752f163a9b7cdd5eccd"
         }
     },
     "bin": "atref.exe",
