@@ -25,6 +25,22 @@ $exe = Join-Path $dir 'atref.exe'
 Write-Host "Downloading $($asset.name) ($($rel.tag_name))..."
 Invoke-WebRequest $asset.browser_download_url -OutFile $exe
 
+# Create a Start Menu shortcut so atref is searchable from Start (idempotent;
+# overwrites an existing one). Non-fatal — PATH is the core install.
+try {
+    $lnk = Join-Path ([Environment]::GetFolderPath('Programs')) 'atref.lnk'
+    $shell = New-Object -ComObject WScript.Shell
+    $shortcut = $shell.CreateShortcut($lnk)
+    $shortcut.TargetPath = $exe
+    $shortcut.WorkingDirectory = $dir
+    $shortcut.Description = 'atref - global @ file-reference picker'
+    $shortcut.Save()
+    Write-Host "Created a Start Menu shortcut."
+}
+catch {
+    Write-Warning "Could not create a Start Menu shortcut: $($_.Exception.Message)"
+}
+
 # Add the install dir to the user PATH if it isn't already there (idempotent).
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 if (($userPath -split ';') -notcontains $dir) {
@@ -36,5 +52,6 @@ if (($userPath -split ';') -notcontains $dir) {
 Write-Host ''
 Write-Host "atref $($rel.tag_name) installed to $exe" -ForegroundColor Green
 Write-Host "  Run 'atref' to start the tray app (Ctrl+Space summons the picker)."
+Write-Host "  Or launch atref from the Start Menu."
 Write-Host "  Run 'atref describe' for the agent CLI."
 Write-Host '  Open a new terminal for the PATH change to take effect.'
