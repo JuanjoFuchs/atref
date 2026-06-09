@@ -49,6 +49,26 @@ impl Drop for App {
     }
 }
 
+impl App {
+    /// Rewrite `config.json` with a new chord (keeping the isolated folder) to
+    /// exercise config hot-reload (spec 006). The running app's config watcher
+    /// picks the edit up and re-registers the chord without a restart.
+    pub fn set_chord(&self, chord: &str) {
+        let files = self.base.join("files");
+        let cfg = serde_json::json!({
+            "folders": [files.to_string_lossy()],
+            "exclude": [],
+            "chord": chord,
+            "git_aware": false,
+        });
+        std::fs::write(
+            self.base.join("home").join("config.json"),
+            serde_json::to_vec_pretty(&cfg).unwrap(),
+        )
+        .unwrap();
+    }
+}
+
 /// Launch the picker against a fresh, isolated config + index folder so a run
 /// never touches the user's real `%APPDATA%\atref`.
 pub fn launch_isolated() -> App {
@@ -135,6 +155,23 @@ pub fn fire_chord() {
     e.key(Key::F8, Direction::Click).unwrap();
     e.key(Key::Alt, Direction::Release).unwrap();
     e.key(Key::Control, Direction::Release).unwrap();
+}
+
+/// Fire Ctrl+Alt+F9 — the post-reload chord used by the hot-reload gate (see
+/// `App::set_chord`). Non-printable trigger, for the same reason as `fire_chord`.
+pub fn fire_chord_f9() {
+    let mut e = Enigo::new(&Settings::default()).expect("enigo");
+    e.key(Key::Control, Direction::Press).unwrap();
+    e.key(Key::Alt, Direction::Press).unwrap();
+    e.key(Key::F9, Direction::Click).unwrap();
+    e.key(Key::Alt, Direction::Release).unwrap();
+    e.key(Key::Control, Direction::Release).unwrap();
+}
+
+/// Press Enter (accepts the selected row — records the pick + inserts).
+pub fn press_enter() {
+    let mut e = Enigo::new(&Settings::default()).expect("enigo");
+    e.key(Key::Return, Direction::Click).unwrap();
 }
 
 /// Press Escape (dismisses the picker).
