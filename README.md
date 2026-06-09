@@ -33,6 +33,12 @@ the system tray, and it doubles as a config CLI so agents can set it up.
   focused; **Enter** inserts `@"<absolute path>"` at the caret, **Esc** dismisses.
 - **Fuzzy + frecency** — `nucleo` matching (basename-weighted, smart-case,
   CamelHumps); recent/most-used files lead an empty query and break near-equal ties.
+- **Rich result rows** — the chars your query matched are highlighted (the
+  ranker's own match, not a re-derivation); every row shows file size, with line
+  count and a **~token estimate** (tiktoken `o200k`) filling in — what will this
+  `@`-ref cost in context? — and images get an inline thumbnail.
+- **Cloud-safe** — OneDrive/Dropbox cloud-only files are never content-read, so
+  browsing results can't trigger downloads.
 - **Multi-folder, git-aware** — index many folders, prune excludes, follow
   `.gitignore`, and a live file-watcher picks up new/changed files.
 - **Instant + persistent** — an on-disk redb cache launches the picker immediately
