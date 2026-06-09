@@ -4,6 +4,9 @@ target/
 Cargo.lock.bak
 *.pdb
 
+# Tauri build output (schemas, generated capabilities)
+/gen/
+
 # Build artifacts
 dist/
 build/
@@ -29,10 +32,6 @@ transcript.log
 node_modules/
 npm/bin/atref-*
 npm/*.tgz
-
-# egui_kittest snapshot artifacts (baseline *.png are committed; these are transient)
-tests/snapshots/**/*.new.png
-tests/snapshots/**/*.diff.png
 
 # Environment
 .env

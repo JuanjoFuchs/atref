@@ -14,30 +14,32 @@ categories = ["command-line-utilities"]
 [dependencies]
 arboard = "3.6.1"
 directories = "6.0.0"
-eframe = "0.33"
 enigo = "0.6.1"
+# Chord validation for the agent CLI (spec 007). The GUI registers chords through
+# tauri-plugin-global-shortcut; this is only the CLI's `config set chord` parser.
 global-hotkey = "0.8"
 ignore = "0.4"
 notify = "8"
 notify-debouncer-full = "0.7"
 nucleo-matcher = "0.3.1"
 redb = "2"
-rfd = "0.17.2"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
-tray-icon = "0.24"
-windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Console", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_UI_Input_KeyboardAndMouse"] }
+# GUI: a transparent borderless WebView2 window with native DWM acrylic
+# (tauri.conf.json windowEffects) + a resident tray + a global summon chord.
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-global-shortcut = "2"
+windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Console", "Win32_UI_WindowsAndMessaging"] }
 
 [build-dependencies]
-# Embed the Windows .exe / Explorer / taskbar icon (assets/icon.ico) at build time.
-winresource = "0.1"
+# Embeds the frontend assets, the .exe icon, and validates tauri.conf.json.
+tauri-build = { version = "2", features = [] }
 
 [dev-dependencies]
-egui_kittest = { version = "0.33", features = ["wgpu", "snapshot"] }
-# Agentic GUI E2E spike (branch spike/agentic-e2e): drive the live app via the
-# Windows UIA tree (AccessKit-exposed egui widgets), inject OS input, screenshot.
-# See ai-docs/agentic-gui-testing.md and tests/e2e.rs.
+# Agentic GUI harness: observe the live WebView2 picker via its UIA tree, drive it
+# with OS input, screenshot it. See ai-docs/agentic-gui-testing.md, tests/e2e.rs.
 uiautomation = { version = "0.25", features = ["process"] }
 xcap = "0.9"
+image = { version = "0.25", default-features = false, features = ["png"] }
 
-# src/main.rs (binary) + src/lib.rs (testable core) are auto-detected.
+# src/main.rs (binary) + src/lib.rs (testable core + Tauri shell) are auto-detected.
