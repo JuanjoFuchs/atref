@@ -29,7 +29,8 @@ const FRECENCY: TableDefinition<&str, &str> = TableDefinition::new("frecency");
 const SCHEMA_KEY: &str = "schema_version";
 
 /// Cached index row (value side of `ENTRIES`, keyed by absolute path). `mtime` /
-/// `size` are kept for future incremental change detection (FR1).
+/// `size` round-trip onto [`Entry`] — size renders on result rows and mtime
+/// keys the enrichment cache (spec 010 FR1/TC3).
 #[derive(Serialize, Deserialize)]
 struct StoredEntry {
     root: String,
@@ -104,6 +105,8 @@ impl Store {
                     root: PathBuf::from(s.root),
                     rel: s.rel,
                     root_rank: s.root_rank,
+                    size: s.size,
+                    mtime: s.mtime,
                 });
             }
         }
@@ -153,13 +156,12 @@ impl Store {
             let _ = write.delete_table(ENTRIES);
             let mut table = write.open_table(ENTRIES)?;
             for e in entries {
-                let (mtime, size) = metadata_mtime_size(&e.abs);
                 let stored = StoredEntry {
                     root: e.root.to_string_lossy().into_owned(),
                     rel: e.rel.clone(),
                     root_rank: e.root_rank,
-                    mtime,
-                    size,
+                    mtime: e.mtime,
+                    size: e.size,
                 };
                 let json = serde_json::to_string(&stored).unwrap_or_default();
                 let key = e.abs.to_string_lossy();
@@ -252,20 +254,4 @@ fn now_unix() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
-}
-
-/// Last-modified (unix secs) + size of `abs`, best-effort (0 if unavailable).
-fn metadata_mtime_size(abs: &Path) -> (u64, u64) {
-    match std::fs::metadata(abs) {
-        Ok(md) => {
-            let mtime = md
-                .modified()
-                .ok()
-                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
-            (mtime, md.len())
-        }
-        Err(_) => (0, 0),
-    }
 }

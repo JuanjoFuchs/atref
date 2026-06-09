@@ -1,7 +1,7 @@
 //! Integration tests for the persistent store (spec 005 AC1–AC5). Uses a real
 //! redb file in a unique temp path (no `tempfile` dep, matching the other
 //! integration tests). The entries reference paths that need not exist on disk
-//! — `persist` stats them best-effort, so missing files just store mtime/size 0.
+//! — size/mtime are whatever the entry carries from index time (spec 010 FR1).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -22,6 +22,8 @@ fn entry(root: &str, rel: &str, root_rank: usize) -> Entry {
         root,
         rel: rel.to_string(),
         root_rank,
+        size: 42,
+        mtime: 1_700_000_000,
     }
 }
 
@@ -58,6 +60,10 @@ fn round_trips_entries_across_reopen() {
     assert_eq!(by_rel("c.rs").root_rank, 1, "root_rank preserved");
     assert_eq!(by_rel("a.md").abs, PathBuf::from(r"D:\vault\a.md"));
     assert_eq!(by_rel("a.md").root, PathBuf::from(r"D:\vault"));
+    // Spec 010 AC1: size/mtime round-trip, so rows render size with no stat
+    // or content read on the search path.
+    assert_eq!(by_rel("a.md").size, 42, "size preserved");
+    assert_eq!(by_rel("a.md").mtime, 1_700_000_000, "mtime preserved");
 
     let _ = fs::remove_file(&path);
 }

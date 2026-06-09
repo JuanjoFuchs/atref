@@ -18,6 +18,7 @@
 
 pub mod cli;
 pub mod config;
+pub mod enrich;
 pub mod frecency;
 pub mod icon;
 pub mod index;
@@ -31,7 +32,7 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::channel;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use nucleo_matcher::{Config as MatcherConfig, Matcher};
@@ -80,6 +81,13 @@ struct Row {
     name: String,
     location: String,
     abs: String,
+    /// Matched-char positions (code-point indices) in `name` / `location`,
+    /// from the ranker's own match (spec 009). Empty on an empty query.
+    name_hl: Vec<u32>,
+    loc_hl: Vec<u32>,
+    /// Byte size from index metadata — renders immediately, no content read
+    /// (spec 010 FR1).
+    size: u64,
 }
 
 #[derive(Serialize)]
@@ -119,10 +127,16 @@ fn search_files(query: String, state: State<'_, Mutex<AppState>>) -> SearchOut {
         .iter()
         .map(|&i| {
             let e = &entries[i];
+            // Highlight positions only for the returned page (spec 009 NFR1).
+            let indices = search::match_indices(&e.rel, &query, matcher);
+            let (name_hl, loc_hl) = search::split_highlights(&e.rel, e.root_name(), &indices);
             Row {
                 name: e.name().to_string(),
                 location: e.location(),
                 abs: e.abs.to_string_lossy().into_owned(),
+                name_hl,
+                loc_hl,
+                size: e.size,
             }
         })
         .collect();
@@ -131,6 +145,31 @@ fn search_files(query: String, state: State<'_, Mutex<AppState>>) -> SearchOut {
         matches,
         total,
     }
+}
+
+/// Lazily enrich one result with line/token metrics (spec 010; spec 011 adds
+/// thumbnails to the same payload). Async so the stat + content read run off
+/// the UI thread (NFR1); results are cached by `(path, mtime)` (TC3). The
+/// frontend requests this only for visible rows after input settles (FR3).
+#[tauri::command]
+async fn enrich(
+    abs: String,
+    cache: State<'_, Arc<Mutex<enrich::EnrichCache>>>,
+) -> Result<enrich::Enrichment, String> {
+    let cache = Arc::clone(&cache);
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = PathBuf::from(&abs);
+        let md = std::fs::metadata(&path).map_err(|e| e.to_string())?;
+        let mtime = index::mtime_secs(&md);
+        if let Some(hit) = cache.lock().unwrap().get(&path, mtime) {
+            return Ok(hit);
+        }
+        let out = enrich::enrich_file(&path, &md, &enrich::DEFAULT_CAPS);
+        cache.lock().unwrap().put(path, mtime, out.clone());
+        Ok(out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Accept a row: record the pick (spec 005 FR4), hide the picker, then insert
@@ -349,6 +388,10 @@ pub fn run() {
                 config: cfg,
                 current_chord,
             }));
+            // Enrichment cache (spec 010 NFR2), shared with the async command.
+            app.manage(Arc::new(Mutex::new(enrich::EnrichCache::new(
+                enrich::CACHE_CAP,
+            ))));
 
             // Tray icon with a Quit item (resident app).
             let quit = MenuItem::with_id(app, "quit", "Quit atref", true, None::<&str>)?;
@@ -369,7 +412,7 @@ pub fn run() {
             std::thread::spawn(move || watcher_manager(handle, config_path));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![search_files, accept, hide])
+        .invoke_handler(tauri::generate_handler![search_files, accept, hide, enrich])
         .run(tauri::generate_context!())
         .expect("error while running atref");
 }

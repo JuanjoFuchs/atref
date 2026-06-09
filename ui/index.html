@@ -65,8 +65,32 @@
         font-size: 15px;
       }
       .row.sel { background: var(--sel); }
-      .row .name { color: var(--text); }
-      .row .loc { color: var(--dim); font-size: 13px; }
+      .row .name { color: var(--text); flex-shrink: 0; }
+      .row .loc {
+        color: var(--dim);
+        font-size: 13px;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .row .hl { color: var(--accent); font-weight: 600; }
+      /* Right-aligned metrics: size · lines · ~tokens (spec 010). */
+      .row .meta {
+        margin-left: auto;
+        flex-shrink: 0;
+        color: var(--dim);
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      /* Image-result thumbnail at the row's right edge (spec 011). */
+      .row .thumb {
+        height: 28px;
+        max-width: 48px;
+        flex-shrink: 0;
+        border-radius: 4px;
+        object-fit: cover;
+      }
       .footer {
         display: flex;
         justify-content: flex-end;
@@ -105,21 +129,129 @@
       let rows = [];
       let sel = 0;
 
+      // Lazy per-file enrichment (spec 010): size renders immediately from the
+      // search payload; lines/~tokens are fetched for visible rows only, 150 ms
+      // after input settles, and cached per summon (the backend cache holds the
+      // mtime-keyed truth).
+      const enrichCache = new Map();
+      const pendingEnrich = new Set();
+      let enrichTimer = null;
+      let metaEls = [];
+      let io = null;
+
+      function fmtSize(n) {
+        if (n < 1024) return n + " B";
+        if (n < 1048576) return (n / 1024).toFixed(n < 10240 ? 1 : 0) + " KB";
+        if (n < 1073741824) return (n / 1048576).toFixed(1) + " MB";
+        return (n / 1073741824).toFixed(1) + " GB";
+      }
+      function fmtTokens(n) {
+        if (n < 1000) return "~" + n + " tok";
+        if (n < 1000000) return "~" + (n / 1000).toFixed(1) + "k tok";
+        return "~" + (n / 1000000).toFixed(1) + "M tok";
+      }
+      function metaText(r) {
+        const e = enrichCache.get(r.abs);
+        let t = fmtSize(e ? e.size : r.size);
+        if (e && e.lines != null) t += " · " + e.lines + " ln · " + fmtTokens(e.tokens);
+        return t;
+      }
+
+      function scheduleEnrich() {
+        clearTimeout(enrichTimer);
+        enrichTimer = setTimeout(flushEnrich, 150);
+      }
+      function flushEnrich() {
+        for (const abs of pendingEnrich) {
+          invoke("enrich", { abs })
+            .then((e) => { enrichCache.set(abs, e); applyMeta(abs); })
+            .catch(() => {});
+        }
+        pendingEnrich.clear();
+      }
+      function thumbImg(src) {
+        const img = document.createElement("img");
+        img.className = "thumb";
+        img.alt = "thumbnail";
+        img.src = src;
+        return img;
+      }
+      function applyMeta(abs) {
+        const e = enrichCache.get(abs);
+        rows.forEach((r, i) => {
+          if (r.abs !== abs || !metaEls[i]) return;
+          metaEls[i].textContent = metaText(r);
+          const rowEl = metaEls[i].parentElement;
+          if (e && e.thumb && rowEl && !rowEl.querySelector(".thumb")) {
+            rowEl.append(thumbImg(e.thumb));
+          }
+        });
+      }
+
+      // A span of `text` with the chars at code-point positions `hl` wrapped in
+      // accent-styled runs (spec 009). DOM-built — file names may contain HTML
+      // metacharacters. Array.from iterates code points, matching the backend's
+      // char indices.
+      function hlSpan(text, cls, hl) {
+        const span = document.createElement("span");
+        span.className = cls;
+        if (!hl || hl.length === 0) { span.textContent = text; return span; }
+        // Highlight runs fragment the text in the accessibility tree; the
+        // label keeps the whole string readable (screen readers, UIA tests).
+        span.setAttribute("aria-label", text);
+        const set = new Set(hl);
+        let run = "", runHl = false;
+        const flush = () => {
+          if (!run) return;
+          if (runHl) {
+            const m = document.createElement("span");
+            m.className = "hl";
+            m.textContent = run;
+            span.appendChild(m);
+          } else {
+            span.appendChild(document.createTextNode(run));
+          }
+          run = "";
+        };
+        Array.from(text).forEach((c, i) => {
+          const h = set.has(i);
+          if (h !== runHl) { flush(); runHl = h; }
+          run += c;
+        });
+        flush();
+        return span;
+      }
+
       function render() {
         resultsEl.innerHTML = "";
+        metaEls = [];
+        if (io) io.disconnect();
+        // Visible rows queue an enrichment request (handles scrolling too).
+        io = new IntersectionObserver((entries) => {
+          for (const en of entries) {
+            if (!en.isIntersecting) continue;
+            const abs = en.target.dataset.abs;
+            if (abs && !enrichCache.has(abs)) pendingEnrich.add(abs);
+          }
+          if (pendingEnrich.size) scheduleEnrich();
+        }, { root: resultsEl });
         rows.forEach((r, i) => {
           const row = document.createElement("div");
           row.className = "row" + (i === sel ? " sel" : "");
-          const name = document.createElement("span");
-          name.className = "name";
-          name.textContent = r.name;
-          const loc = document.createElement("span");
-          loc.className = "loc";
-          loc.textContent = r.location;
-          row.append(name, loc);
+          row.dataset.abs = r.abs;
+          const name = hlSpan(r.name, "name", r.name_hl);
+          const loc = hlSpan(r.location, "loc", r.loc_hl);
+          const meta = document.createElement("span");
+          meta.className = "meta";
+          meta.textContent = metaText(r);
+          metaEls.push(meta);
+          row.append(name, loc, meta);
+          const cached = enrichCache.get(r.abs);
+          if (cached && cached.thumb) row.append(thumbImg(cached.thumb));
           row.addEventListener("mousemove", () => { if (sel !== i) { sel = i; render(); } });
           row.addEventListener("click", () => accept(i));
           resultsEl.appendChild(row);
+          io.observe(row);
         });
         const cur = resultsEl.children[sel];
         if (cur) cur.scrollIntoView({ block: "nearest" });
@@ -151,8 +283,16 @@
       closeEl.addEventListener("click", hide);
       // Click outside / focus loss dismisses the picker.
       window.addEventListener("blur", hide);
-      // On summon: clear the query, refocus the box, re-search.
-      listen("summon", () => { q.value = ""; q.focus(); doSearch(); });
+      // On summon: clear the query, refocus the box, re-search. The enrich
+      // cache resets too — files may have changed since the last summon (the
+      // backend cache revalidates by mtime).
+      listen("summon", () => {
+        enrichCache.clear();
+        pendingEnrich.clear();
+        q.value = "";
+        q.focus();
+        doSearch();
+      });
 
       q.focus();
       doSearch();

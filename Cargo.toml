@@ -13,12 +13,17 @@ categories = ["command-line-utilities"]
 
 [dependencies]
 arboard = "3.6.1"
+# Thumbnail data URIs for image results (spec 011).
+base64 = "0.22"
 directories = "6.0.0"
 enigo = "0.6.1"
 # Chord validation for the agent CLI (spec 007). The GUI registers chords through
 # tauri-plugin-global-shortcut; this is only the CLI's `config set chord` parser.
 global-hotkey = "0.8"
 ignore = "0.4"
+# Decode + downscale image results into row thumbnails (spec 011); also the
+# test harness's screenshot encoder.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 notify = "8"
 notify-debouncer-full = "0.7"
 nucleo-matcher = "0.3.1"
@@ -29,6 +34,7 @@ serde_json = "1.0.150"
 # (tauri.conf.json windowEffects) + a resident tray + a global summon chord.
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-global-shortcut = "2"
+tiktoken-rs = "0.12.0"
 windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Console", "Win32_UI_WindowsAndMessaging"] }
 
 [build-dependencies]
@@ -40,6 +46,5 @@ tauri-build = { version = "2", features = [] }
 # with OS input, screenshot it. See ai-docs/agentic-gui-testing.md, tests/e2e.rs.
 uiautomation = { version = "0.25", features = ["process"] }
 xcap = "0.9"
-image = { version = "0.25", default-features = false, features = ["png"] }
 
 # src/main.rs (binary) + src/lib.rs (testable core + Tauri shell) are auto-detected.

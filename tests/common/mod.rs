@@ -50,6 +50,12 @@ impl Drop for App {
 }
 
 impl App {
+    /// The isolated folder atref indexes — tests drop extra fixtures (e.g. an
+    /// image for spec 011) here and let the live watcher pick them up.
+    pub fn files_dir(&self) -> PathBuf {
+        self.base.join("files")
+    }
+
     /// Rewrite `config.json` with a new chord (keeping the isolated folder) to
     /// exercise config hot-reload (spec 006). The running app's config watcher
     /// picks the edit up and re-registers the chord without a restart.

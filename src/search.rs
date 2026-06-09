@@ -74,6 +74,60 @@ pub fn rank(
     (order, total)
 }
 
+/// Match positions for `query` over `rel`, as Unicode code-point indices into
+/// `rel` — produced by the same nucleo pattern construction [`rank`] scores
+/// with, so highlights are the ranker's own match (spec 009 FR3/TC1). Sorted
+/// and deduplicated (nucleo documents its indices as possibly unordered and
+/// duplicated). Empty for an empty query or a non-matching row. Intended to be
+/// called only for the rows a search returns, not the whole index (NFR1).
+pub fn match_indices(rel: &str, query: &str, matcher: &mut Matcher) -> Vec<u32> {
+    if query.is_empty() {
+        return Vec::new();
+    }
+    let pattern = Pattern::parse(query, CaseMatching::Smart, Normalization::Smart);
+    let mut buf = Vec::new();
+    let haystack = Utf32Str::new(rel, &mut buf);
+    let mut indices = Vec::new();
+    if pattern.indices(haystack, matcher, &mut indices).is_none() {
+        return Vec::new();
+    }
+    indices.sort_unstable();
+    indices.dedup();
+    indices
+}
+
+/// Split rel-relative match positions onto the two strings a row displays
+/// (spec 009 TC2): the basename, and the location line (`root_name`, plus
+/// `/`-joined parent when the file is nested — `\` → `/` preserves char
+/// counts, so positions carry over by offset). The boundary separator between
+/// parent and basename is shown in neither string, so positions landing on it
+/// are dropped. Returns `(name_hl, loc_hl)` as code-point indices into the
+/// displayed strings.
+pub fn split_highlights(rel: &str, root_name: &str, indices: &[u32]) -> (Vec<u32>, Vec<u32>) {
+    let sep = rel
+        .chars()
+        .enumerate()
+        .filter(|(_, c)| *c == '\\' || *c == '/')
+        .map(|(i, _)| i as u32)
+        .last();
+    let Some(sep) = sep else {
+        // Root-level file: the whole rel is the basename; the location line is
+        // just the root folder name, which contains no rel characters.
+        return (indices.to_vec(), Vec::new());
+    };
+    let root_chars = root_name.chars().count() as u32;
+    let mut name_hl = Vec::new();
+    let mut loc_hl = Vec::new();
+    for &idx in indices {
+        if idx > sep {
+            name_hl.push(idx - sep - 1);
+        } else if idx < sep {
+            loc_hl.push(root_chars + 1 + idx);
+        }
+    }
+    (name_hl, loc_hl)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -86,6 +140,8 @@ mod tests {
             root: PathBuf::new(),
             rel: rel.to_string(),
             root_rank,
+            size: 0,
+            mtime: 0,
         }
     }
 
@@ -174,6 +230,117 @@ mod tests {
             res,
             vec![1, 0],
             "frecency edges out the equal-scoring stranger"
+        );
+    }
+
+    #[test]
+    fn indices_come_from_the_scoring_pattern() {
+        // Spec 009 AC1: the indices-producing call returns the same score the
+        // ranking call produced — highlights are the ranker's own match, not a
+        // second divergent pass.
+        let mut m = matcher();
+        let hay = "specs\\009-match-highlighting.md";
+        let pattern = Pattern::parse("spec", CaseMatching::Smart, Normalization::Smart);
+        let mut buf = Vec::new();
+        let score = pattern.score(Utf32Str::new(hay, &mut buf), &mut m);
+        let mut raw = Vec::new();
+        let indices_score = pattern.indices(Utf32Str::new(hay, &mut buf), &mut m, &mut raw);
+        assert_eq!(score, indices_score, "same match, same score");
+        assert!(score.is_some());
+        assert!(!raw.is_empty());
+
+        let got = match_indices(hay, "spec", &mut m);
+        assert!(!got.is_empty());
+        assert!(got.windows(2).all(|w| w[0] < w[1]), "sorted + deduplicated");
+    }
+
+    #[test]
+    fn match_indices_empty_query_or_no_match_is_empty() {
+        // Spec 009 AC4 (payload side): empty query → nothing to highlight; a
+        // non-matching row yields nothing either.
+        let mut m = matcher();
+        assert!(match_indices("notes.md", "", &mut m).is_empty());
+        assert!(match_indices("notes.md", "zzqx", &mut m).is_empty());
+    }
+
+    #[test]
+    fn match_indices_non_ascii_positions_are_code_points() {
+        // Spec 009 AC2: positions index code points, not bytes — `é` counts as
+        // one position, matching JS `Array.from` iteration.
+        let mut m = matcher();
+        let got = match_indices("nota-café.md", "café", &mut m);
+        assert_eq!(got, vec![5, 6, 7, 8], "c-a-f-é at code points 5..=8");
+    }
+
+    #[test]
+    fn match_indices_camelhumps_is_non_contiguous() {
+        // Spec 009 AC3: an initialism query highlights the actual humps nucleo
+        // matched — non-contiguous positions whose chars echo the query.
+        let mut m = matcher();
+        let hay = "FiniteSeasonsGift.md";
+        let got = match_indices(hay, "fsg", &mut m);
+        assert_eq!(got.len(), 3);
+        assert!(
+            got.windows(2).any(|w| w[1] - w[0] > 1),
+            "humps are not adjacent: {got:?}"
+        );
+        let chars: Vec<char> = hay.chars().collect();
+        let hit: String = got
+            .iter()
+            .map(|&i| chars[i as usize].to_ascii_lowercase())
+            .collect();
+        assert_eq!(hit, "fsg", "highlighted chars echo the query");
+    }
+
+    #[test]
+    fn split_highlights_maps_to_displayed_strings() {
+        // Spec 009 AC2: rel positions split onto basename + location, location
+        // offset past the root folder name and the joining `/`; the boundary
+        // separator (index 4 here) is dropped — it is displayed in neither.
+        let (name_hl, loc_hl) = split_highlights("docs\\demo.mp4", "atref", &[0, 1, 4, 5, 6]);
+        assert_eq!(name_hl, vec![0, 1], "d, e of demo.mp4");
+        assert_eq!(loc_hl, vec![6, 7], "d, o of docs after `atref/`");
+    }
+
+    #[test]
+    fn split_highlights_root_level_file_has_no_location_positions() {
+        // Spec 009 AC2: a root-level file displays its whole rel as the name;
+        // the location line is the bare root folder name (no rel chars).
+        let (name_hl, loc_hl) = split_highlights("notes.md", "vault", &[0, 1, 2]);
+        assert_eq!(name_hl, vec![0, 1, 2]);
+        assert!(loc_hl.is_empty());
+    }
+
+    #[test]
+    fn split_highlights_nested_parent_keeps_inner_separators() {
+        // A multi-level parent displays its inner separators (as `/`), so a
+        // position on one survives the mapping; only the boundary one drops.
+        // rel: a\b\c.md → sep at 3; location "root/a/b".
+        let (name_hl, loc_hl) = split_highlights("a\\b\\c.md", "root", &[0, 1, 2, 3, 4]);
+        assert_eq!(name_hl, vec![0], "c of c.md");
+        assert_eq!(loc_hl, vec![5, 6, 7], "a, /, b after `root/`");
+    }
+
+    #[test]
+    fn match_indices_timing_smoke_over_synthetic_corpus() {
+        // Spec 009 AC5/NFR1: extraction for a returned page of rows is cheap.
+        // Generous debug-build bound — this guards against accidentally running
+        // indices over the whole corpus instead of the returned rows.
+        let entries: Vec<Entry> = (0..5000)
+            .map(|i| entry(&format!("dir{}\\note-file-{i}.md", i % 40), 0))
+            .collect();
+        let mut m = matcher();
+        let (idx, _) = rank("note", &entries, &[], &mut m, 50);
+        assert_eq!(idx.len(), 50);
+        let start = std::time::Instant::now();
+        for &i in &idx {
+            let positions = match_indices(&entries[i].rel, "note", &mut m);
+            assert!(!positions.is_empty());
+        }
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed < std::time::Duration::from_millis(250),
+            "50 rows took {elapsed:?}"
         );
     }
 

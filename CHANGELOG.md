@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Match-position highlighting** — result rows emphasize the exact characters
+  the fuzzy matcher matched (accent-colored, in both name and path), straight
+  from the ranker's own match indices so what's bolded is exactly what was
+  scored. (spec 009)
+- **Per-result file metrics** — every row shows its size, and visible rows fill
+  in line count and an estimated token count (`3.2 KB · 95 ln · ~1.1k tok`,
+  tiktoken `o200k_base`) so you can see what a reference will cost in context
+  before inserting it. Lazy, cached, and computed off the UI thread. (spec 010)
+- **Image thumbnails** — png/jpg/gif/webp/svg results show a small thumbnail at
+  the row's right edge (GIFs use their first frame, SVGs render natively).
+  (spec 011)
+
+### Fixed
+- **Cloud placeholders are never downloaded** — metrics and thumbnails stop at
+  filesystem metadata for OneDrive/Dropbox cloud-only files
+  (`FILE_ATTRIBUTE_OFFLINE` / `RECALL_ON_DATA_ACCESS`), so browsing results
+  can't trigger hydration.
+
 ## [0.5.1] - 2026-06-09
 
 ### Added

@@ -2,7 +2,9 @@
 //! optionally respecting `.gitignore` (spec 002 FR1–FR4).
 
 use std::collections::HashSet;
+use std::fs::Metadata;
 use std::path::{Path, PathBuf};
+use std::time::UNIX_EPOCH;
 
 use ignore::{DirEntry, WalkBuilder};
 
@@ -18,6 +20,12 @@ pub struct Entry {
     /// Index of `root` in the configured `folders` list. Lower wins ranking
     /// ties (spec 002 FR5 — folder priority).
     pub root_rank: usize,
+    /// Byte size at index time, shown on result rows without a content read
+    /// (spec 010 FR1). `0` when metadata was unavailable.
+    pub size: u64,
+    /// Last-modified (unix secs) at index time; keys the enrichment cache
+    /// (spec 010 TC3). `0` when metadata was unavailable.
+    pub mtime: u64,
 }
 
 impl Entry {
@@ -80,7 +88,12 @@ pub fn build(folders: &[PathBuf], exclude: &[String], git_aware: bool) -> Vec<En
         for entry in walker.flatten() {
             let path = entry.path();
             let is_file = entry.file_type().map(|ft| ft.is_file()).unwrap_or(false);
-            if !is_file || is_hidden(path) {
+            if !is_file {
+                continue;
+            }
+            // One metadata read serves the hidden check and size/mtime capture.
+            let md = entry.metadata().ok();
+            if is_hidden(path, md.as_ref()) {
                 continue;
             }
             let abs = path.to_path_buf();
@@ -92,11 +105,14 @@ pub fn build(folders: &[PathBuf], exclude: &[String], git_aware: bool) -> Vec<En
                 .unwrap_or(&abs)
                 .to_string_lossy()
                 .into_owned();
+            let (size, mtime) = md.map(|m| (m.len(), mtime_secs(&m))).unwrap_or((0, 0));
             entries.push(Entry {
                 abs,
                 root: root.clone(),
                 rel,
                 root_rank,
+                size,
+                mtime,
             });
         }
     }
@@ -116,7 +132,8 @@ fn is_excluded_dir(entry: &DirEntry, exclude: &[String]) -> bool {
 /// A file is hidden if its name is dot-prefixed or it carries the Windows
 /// hidden attribute. (`ignore`'s `hidden(true)` covers dot-prefixed names but
 /// not the NTFS hidden attribute, so this overlay preserves FR4 parity.)
-fn is_hidden(path: &Path) -> bool {
+/// Takes the walker's already-fetched metadata to avoid a second stat.
+fn is_hidden(path: &Path, md: Option<&Metadata>) -> bool {
     let dot_prefixed = path
         .file_name()
         .and_then(|n| n.to_str())
@@ -129,11 +146,22 @@ fn is_hidden(path: &Path) -> bool {
     {
         use std::os::windows::fs::MetadataExt;
         const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
-        if let Ok(md) = path.metadata() {
+        if let Some(md) = md {
             return md.file_attributes() & FILE_ATTRIBUTE_HIDDEN != 0;
         }
     }
+    #[cfg(not(windows))]
+    let _ = md;
     false
+}
+
+/// Last-modified as unix seconds, best-effort (`0` if unavailable).
+pub(crate) fn mtime_secs(md: &Metadata) -> u64 {
+    md.modified()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -212,6 +240,8 @@ mod tests {
             root: PathBuf::from(r"D:\dev\second-brain"),
             rel: "note.md".to_string(),
             root_rank: 0,
+            size: 0,
+            mtime: 0,
         };
         assert_eq!(top.location(), "second-brain");
 
@@ -220,6 +250,8 @@ mod tests {
             root: PathBuf::from(r"D:\dev\atref"),
             rel: r"specs\001.md".to_string(),
             root_rank: 1,
+            size: 0,
+            mtime: 0,
         };
         assert_eq!(nested.location(), "atref/specs");
     }

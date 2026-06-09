@@ -1,9 +1,10 @@
 //! Deterministic live-GUI gates for the Tauri picker (WebView2 UIA tree). Each
 //! launches the real binary isolated, drives it with synthetic OS input, and
 //! asserts the running picker's state through UIA. `#[ignore]`d (they fire global
-//! chords + type, so they take focus) — run them deliberately:
+//! chords + type, so they take focus) — run them deliberately, and **serially**
+//! (parallel runs fight over COM init, the desktop, and the test chord):
 //!
-//!     cargo test --test e2e -- --ignored --nocapture
+//!     cargo test --test e2e -- --ignored --nocapture --test-threads=1
 
 mod common;
 
@@ -12,7 +13,7 @@ use std::time::Duration;
 
 use common::{
     automation, find_window, fire_chord, fire_chord_f9, launch_isolated, poll, press_enter,
-    press_escape, texts, type_text,
+    press_escape, screenshot_window, texts, type_text,
 };
 
 #[test]
@@ -89,6 +90,66 @@ fn pick_floats_to_top_via_frecency() {
             );
         }
     }
+    press_escape();
+    sleep(Duration::from_millis(500));
+}
+
+#[test]
+#[ignore = "fires a global chord + types — takes focus; run deliberately"]
+fn rich_rows_show_metrics_and_thumbnails() {
+    // Specs 009/010/011: a queried row shows right-aligned metrics
+    // (`size · N ln · ~N tok`, spec 010 AC7) and an image result carries a
+    // thumbnail (exposed to UIA via the img's alt text, spec 011 AC6).
+    // Highlight styling is invisible to UIA — the screenshots are the evidence
+    // for spec 009 AC6 (see ai-docs/agentic-gui-testing.md).
+    let app = launch_isolated();
+    let (a, walker) = automation();
+
+    // Drop an image fixture; the live watcher (spec 002) indexes it.
+    let img = image::RgbaImage::from_pixel(64, 64, image::Rgba([200, 40, 40, 255]));
+    image::DynamicImage::ImageRgba8(img)
+        .save(app.files_dir().join("photo.png"))
+        .unwrap();
+
+    sleep(Duration::from_secs(3)); // setup + watcher debounce + reconcile
+    fire_chord();
+    poll(Duration::from_secs(15), || find_window(&a)).expect("picker did not summon on the chord");
+    sleep(Duration::from_millis(1000));
+
+    // Text file: metrics line fills in after the enrich settle (150 ms + IO;
+    // first call also builds the tokenizer, so give it room).
+    type_text("alpha");
+    sleep(Duration::from_millis(2500));
+    let win = find_window(&a).expect("picker window disappeared mid-search");
+    let labels = texts(&walker, &win);
+    assert!(
+        labels
+            .iter()
+            .any(|t| t.contains("ln") && t.contains("~") && t.contains("tok")),
+        "metrics text (size · ln · ~tok) missing, got {labels:?}"
+    );
+    screenshot_window("rich-rows-metrics", &win);
+
+    // Image file: same flow, thumbnail joins the row.
+    press_escape();
+    sleep(Duration::from_millis(700));
+    fire_chord();
+    poll(Duration::from_secs(15), || find_window(&a)).expect("picker did not re-summon");
+    sleep(Duration::from_millis(1000));
+    type_text("photo");
+    sleep(Duration::from_millis(2000));
+    let win = find_window(&a).expect("picker window disappeared mid-search");
+    let labels = texts(&walker, &win);
+    assert!(
+        labels.iter().any(|t| t == "photo.png"),
+        "photo.png should be indexed by the live watcher, got {labels:?}"
+    );
+    assert!(
+        labels.iter().any(|t| t == "thumbnail"),
+        "thumbnail img (alt text) missing for the image row, got {labels:?}"
+    );
+    screenshot_window("rich-rows-thumbnail", &win);
+
     press_escape();
     sleep(Duration::from_millis(500));
 }
