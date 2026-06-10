@@ -16,7 +16,11 @@
   <strong>Claude Code's <code>@</code> file picker — everywhere.</strong>
 </p>
 
-https://github.com/user-attachments/assets/a4d04fb2-e767-426b-af13-4cee302573a7
+<p align="center">
+  <a href="docs/demo.mp4">
+    <img src="docs/demo.gif" alt="atref demo: summon the picker anywhere, fuzzy-search your indexed folders, and insert a file reference at the caret" width="760">
+  </a>
+</p>
 
 A global file-reference picker for Windows. Press a keyboard chord anywhere —
 terminal, browser, Obsidian, chat app, IDE — and an unobtrusive fuzzy picker pops
